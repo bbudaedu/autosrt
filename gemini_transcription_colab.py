@@ -148,8 +148,8 @@ def get_gemini_correction(transcribed_text_lines, pdf_context):
 
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key={api_key}"
 
-    max_retries = 5
-    base_delay = 10  # seconds
+    max_retries = 7
+    base_delay = 60  # seconds
     response = None # Initialize response to None
 
     print("正在調用 Gemini API 進行文本校對，這可能需要一些時間...")
@@ -409,6 +409,6 @@ for audio_file_name in audio_files_to_process:
     except Exception as e:
         print(f"處理檔案 '{audio_file_name}' 時發生錯誤: {e}")
 
-    time.sleep(5)
+    time.sleep(60)
 
 print("\n所有檔案處理完畢。")
