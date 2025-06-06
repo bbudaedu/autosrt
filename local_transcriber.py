@@ -1,51 +1,53 @@
 import os
 import datetime
-from faster_whisper import WhisperModel # Corrected import
+from faster_whisper import WhisperModel # 已修正導入
 import logging
 import json
-# google.colab.drive will be imported within the main function for conditional mounting
+# google.colab.drive 將在主函數中有條件地導入，用於掛載
 
-# --- Configuration Variables ---
+# --- 配置變數 ---
 MODEL_SIZE = "large-v3"
-INITIAL_PROMPT_TEXT = "這是佛教關於密教真言宗藥師佛" # Consider making this configurable if needed
+INITIAL_PROMPT_TEXT = "這是佛教關於密教真言宗藥師佛" # 如果需要，可以考慮使其可配置
 INPUT_AUDIO_DIR = "/content/drive/MyDrive/input_audio"
-OUTPUT_TRANSCRIPTIONS_ROOT_DIR = "/content/drive/MyDrive/output_transcriptions" # Root for new subdirs
-STATE_FILE_PATH = os.path.join(OUTPUT_TRANSCRIPTIONS_ROOT_DIR, ".processed_audio_files.json")
+OUTPUT_TRANSCRIPTIONS_ROOT_DIR = "/content/drive/MyDrive/output_transcriptions" # 新子目錄的根目錄
+STATE_FILE_PATH = os.path.join(OUTPUT_TRANSCRIPTIONS_ROOT_DIR, ".processed_audio_files.json") # 狀態檔案路徑
 
 
-# --- Helper Functions ---
+# --- 輔助函數 ---
 def load_processed_files(state_file_path):
+    # 從狀態檔案載入已處理的檔案名稱集合
     try:
         if os.path.exists(state_file_path):
             with open(state_file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                # Ensure it's a list, convert to set for efficient lookup
+                # 確保是列表，轉換為集合以便高效查找
                 return set(data if isinstance(data, list) else [])
-        logging.info(f"State file '{state_file_path}' not found. Starting fresh.")
+        logging.info(f"狀態檔案 '{state_file_path}' 未找到。將從頭開始處理。")
     except json.JSONDecodeError:
-        logging.warning(f"Error decoding state file '{state_file_path}'. Starting fresh.")
+        logging.warning(f"解碼狀態檔案 '{state_file_path}' 時發生錯誤。將從頭開始處理。")
     except Exception as e:
-        logging.error(f"Error loading state file '{state_file_path}': {e}. Starting fresh.", exc_info=True)
+        logging.error(f"載入狀態檔案 '{state_file_path}' 時發生錯誤: {e}。將從頭開始處理。", exc_info=True)
     return set()
 
 def save_processed_files(state_file_path, processed_files_set):
-    temp_state_file_path = state_file_path + ".tmp"
+    # 將已處理的檔案名稱集合儲存到狀態檔案
+    temp_state_file_path = state_file_path + ".tmp" # 使用臨時檔案以確保原子性寫入
     try:
-        # Ensure parent directory exists
+        # 確保父目錄存在
         os.makedirs(os.path.dirname(state_file_path), exist_ok=True)
         with open(temp_state_file_path, 'w', encoding='utf-8') as f:
-            # Convert set to list for JSON serialization
+            # 將集合轉換為列表以便 JSON 序列化
             json.dump(list(processed_files_set), f, ensure_ascii=False, indent=4)
-        # Atomic rename (on POSIX systems)
+        # 原子性重命名 (在 POSIX 系統上)
         os.replace(temp_state_file_path, state_file_path)
-        logging.debug(f"Successfully saved state to '{state_file_path}'.") # Changed to debug
+        logging.debug(f"狀態已成功儲存至 '{state_file_path}'。")
     except Exception as e:
-        logging.error(f"Error saving state to '{state_file_path}': {e}", exc_info=True)
+        logging.error(f"儲存狀態至 '{state_file_path}' 時發生錯誤: {e}", exc_info=True)
         if os.path.exists(temp_state_file_path):
             try:
                 os.remove(temp_state_file_path)
             except OSError as oe:
-                logging.error(f"Error removing temporary state file '{temp_state_file_path}': {oe}", exc_info=True)
+                logging.error(f"移除臨時狀態檔案 '{temp_state_file_path}' 時發生錯誤: {oe}", exc_info=True)
 
 def format_srt_time(seconds):
     """將秒數格式化為 SRT 格式的時間字串 (HH:MM:SS,ms)"""
@@ -56,83 +58,83 @@ def format_srt_time(seconds):
     return f"{hours:02d}:{minutes:02d}:{int(secs):02d},{milliseconds:03d}"
 
 def main():
-    # --- Basic Logging Configuration ---
+    # --- 基本日誌配置 ---
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.StreamHandler() # Log to console
-            # Optionally, add a FileHandler later if needed:
+            logging.StreamHandler() # 日誌輸出到控制台
+            # 如果需要，之後可以選擇性添加 FileHandler:
             # logging.FileHandler('local_transcriber.log')
         ]
     )
-    logging.info("local_transcriber.py script started.")
+    logging.info("local_transcriber.py 腳本已啟動。")
 
-    # --- Load State ---
+    # --- 載入狀態 ---
     processed_files = load_processed_files(STATE_FILE_PATH)
-    logging.info(f"Loaded {len(processed_files)} processed file name(s) from state: {STATE_FILE_PATH}")
+    logging.info(f"從狀態檔案 '{STATE_FILE_PATH}' 載入了 {len(processed_files)} 個已處理檔案的記錄。")
 
-    # --- Mount Google Drive ---
-    logging.info("Attempting to mount Google Drive...")
+    # --- 掛載 Google Drive ---
+    logging.info("嘗試掛載 Google Drive...")
     try:
         from google.colab import drive
         drive.mount('/content/drive', force_remount=True)
-        logging.info("Google Drive mounted successfully.")
+        logging.info("Google Drive 掛載成功。")
     except ImportError:
-        logging.warning("Skipping Drive mount, not in Colab or google.colab not available.")
-        # Depending on whether Drive is strictly necessary, you might exit here
-        # For local execution without Colab, INPUT_AUDIO_DIR would need to be a local path
+        logging.warning("跳過 Drive 掛載，因為不在 Colab 環境或 google.colab 不可用。")
+        # 取決於 Drive 是否絕對必要，您可能需要在此處退出
+        # 對於沒有 Colab 的本地執行，INPUT_AUDIO_DIR 需要是本地路徑
     except Exception as e:
-        logging.error(f"Error mounting Google Drive: {e}", exc_info=True)
-        # Potentially exit if Drive is essential and mount fails
-        return # Exit if drive mount fails and it's considered critical
+        logging.error(f"掛載 Google Drive 時發生錯誤: {e}", exc_info=True)
+        # 如果 Drive 至關重要且掛載失敗，則可能需要退出
+        return # 如果 Drive 掛載失敗且被認為是關鍵操作，則退出
 
-    # --- Load Faster Whisper Model ---
-    logging.info(f"Loading Faster Whisper model: {MODEL_SIZE}...")
+    # --- 加載 Faster Whisper 模型 ---
+    logging.info(f"正在加載 Faster Whisper 模型: {MODEL_SIZE}...")
     try:
         model = WhisperModel(MODEL_SIZE, device="cuda", compute_type="float16")
-        logging.info("Faster Whisper model loaded successfully.")
+        logging.info("Faster Whisper 模型加載成功。")
     except Exception as e:
-        logging.error(f"Error loading Faster Whisper model: {e}", exc_info=True)
-        logging.error("This script requires a CUDA-enabled GPU and appropriate libraries.")
-        logging.error("Ensure PyTorch and CTranslate2 with CUDA support are correctly installed.")
+        logging.error(f"加載 Faster Whisper 模型時發生錯誤: {e}", exc_info=True)
+        logging.error("此腳本需要支持 CUDA 的 GPU 和相應的庫。")
+        logging.error("請確保已正確安裝 PyTorch 和支持 CUDA 的 CTranslate2。")
         return
 
-    # --- Check Input Directory ---
+    # --- 檢查輸入目錄 ---
     if not os.path.exists(INPUT_AUDIO_DIR):
-        logging.error(f"Input audio directory '{INPUT_AUDIO_DIR}' not found. Exiting.")
+        logging.error(f"輸入音頻目錄 '{INPUT_AUDIO_DIR}' 未找到。正在退出。")
         return
 
-    logging.info(f"Input audio directory: {INPUT_AUDIO_DIR}")
-    logging.info(f"Output root directory: {OUTPUT_TRANSCRIPTIONS_ROOT_DIR}")
-    logging.info(f"State file path: {STATE_FILE_PATH}")
+    logging.info(f"輸入音頻目錄: {INPUT_AUDIO_DIR}")
+    logging.info(f"輸出根目錄: {OUTPUT_TRANSCRIPTIONS_ROOT_DIR}")
+    logging.info(f"狀態檔案路徑: {STATE_FILE_PATH}")
 
-    # --- Iterate Through Audio Files ---
+    # --- 遍歷音頻檔案 ---
     audio_files_to_process = [f for f in os.listdir(INPUT_AUDIO_DIR) if f.lower().endswith(('.mp3', '.wav', '.flac', '.m4a', '.mp4'))]
 
     if not audio_files_to_process:
-        logging.info(f"No audio files found in '{INPUT_AUDIO_DIR}'.")
+        logging.info(f"在 '{INPUT_AUDIO_DIR}' 中未找到任何音頻檔案。")
         return
 
-    logging.info(f"Found {len(audio_files_to_process)} audio file(s) to process.")
+    logging.info(f"找到 {len(audio_files_to_process)} 個音頻檔案待處理。")
 
-    unwanted_phrase = "字幕由 Amara.org 社群提供" # As per original script
+    unwanted_phrase = "字幕由 Amara.org 社群提供" # 根據原始腳本
 
     for audio_file_name in audio_files_to_process:
-        # Use audio_file_name as the unique identifier for processed state
+        # 使用 audio_file_name 作為已處理狀態的唯一標識符
         if audio_file_name in processed_files:
-            logging.info(f"Skipping '{audio_file_name}' as it was already processed.")
+            logging.info(f"跳過 '{audio_file_name}'，因為它先前已被處理。")
             continue
 
         base_name = os.path.splitext(audio_file_name)[0]
         audio_path = os.path.join(INPUT_AUDIO_DIR, audio_file_name)
 
-        logging.info(f"--- Processing file: {audio_path} ---")
+        logging.info(f"--- 正在處理檔案: {audio_path} ---")
 
-        # --- Transcription ---
+        # --- 轉錄 ---
         try:
-            logging.info(f"Starting transcription for {audio_file_name}...")
-            # VAD parameters from the original script (can be made configurable)
+            logging.info(f"開始轉錄檔案: {audio_file_name}...")
+            # VAD 參數來自原始腳本 (可以設為可配置)
             vad_parameters = {
                 "min_speech_duration_ms": 50,
                 "min_silence_duration_ms": 500,
@@ -145,25 +147,25 @@ def main():
                 vad_filter=True,
                 vad_parameters=vad_parameters
             )
-            segments_list = list(segments_generator) # Consume generator
-            logging.info(f"Transcription finished for {audio_file_name}. Language: {info.language} with probability {info.language_probability:.2f}")
-            logging.info(f"Detected {len(segments_list)} segments for {audio_file_name}.")
+            segments_list = list(segments_generator) # 使用生成器獲取列表
+            logging.info(f"檔案 '{audio_file_name}' 轉錄完成。語言: {info.language}，概率: {info.language_probability:.2f}")
+            logging.info(f"為 '{audio_file_name}'檢測到 {len(segments_list)} 個片段。")
 
         except Exception as e:
-            logging.error(f"Error during transcription for {audio_file_name}: {e}", exc_info=True)
-            continue # Skip to the next file
+            logging.error(f"檔案 '{audio_file_name}' 轉錄過程中發生錯誤: {e}", exc_info=True)
+            continue # 跳到下一個檔案
 
-        # --- Generate "Normal Text" ---
+        # --- 生成 "一般文本" ---
         whisper_transcription_lines = []
         for segment in segments_list:
             cleaned_text = segment.text.strip().replace(unwanted_phrase, "").strip()
-            if cleaned_text: # Only add if there's actual text after cleaning
+            if cleaned_text: # 清理後有實際文本才添加
                 whisper_transcription_lines.append(cleaned_text)
 
         normal_text_content = "\n".join(whisper_transcription_lines)
-        # print(f"\nNormal Text Preview (first 100 chars for {base_name}):\n'{normal_text_content[:100]}...'") # For debugging
+        # logging.debug(f"\n檔案 '{base_name}' 的一般文本預覽 (前100字符):\n'{normal_text_content[:100]}...'") # 用於調試
 
-        # --- Generate SRT Content ---
+        # --- 生成 SRT 內容 ---
         srt_content = ""
         srt_sequence_number = 1
         for segment in segments_list:
@@ -171,21 +173,21 @@ def main():
             end_time_srt = format_srt_time(segment.end)
             cleaned_segment_text = segment.text.strip().replace(unwanted_phrase, "").strip()
 
-            if cleaned_segment_text: # Only include segments with actual text in SRT
+            if cleaned_segment_text: # SRT 中僅包含有實際文本的片段
                 srt_content += f"{srt_sequence_number}\n"
                 srt_content += f"{start_time_srt} --> {end_time_srt}\n"
                 srt_content += f"{cleaned_segment_text}\n\n"
                 srt_sequence_number += 1
-        # print(f"\nSRT Content Preview (first 100 chars for {base_name}):\n'{srt_content[:100]}...'") # For debugging
+        # logging.debug(f"\n檔案 '{base_name}' 的 SRT 內容預覽 (前100字符):\n'{srt_content[:100]}...'") # 用於調試
 
 
-        # --- Output to Files ---
+        # --- 輸出到檔案 ---
         output_dir_for_file = os.path.join(OUTPUT_TRANSCRIPTIONS_ROOT_DIR, base_name)
         try:
             os.makedirs(output_dir_for_file, exist_ok=True)
         except OSError as e:
-            logging.error(f"Error creating output directory {output_dir_for_file}: {e}", exc_info=True)
-            continue # Skip to next file if directory creation fails
+            logging.error(f"創建輸出目錄 {output_dir_for_file} 時發生錯誤: {e}", exc_info=True)
+            continue # 如果目錄創建失敗，跳到下一個檔案
 
         normal_text_filename = f"{base_name}_normal.txt"
         normal_text_path = os.path.join(output_dir_for_file, normal_text_filename)
@@ -196,25 +198,25 @@ def main():
         try:
             with open(normal_text_path, "w", encoding="utf-8") as f:
                 f.write(normal_text_content)
-            logging.info(f"Successfully wrote normal text to: {normal_text_path}")
+            logging.info(f"一般文本已成功寫入: {normal_text_path}")
         except IOError as e:
-            logging.error(f"Error writing normal text to {normal_text_path}: {e}", exc_info=True)
+            logging.error(f"寫入一般文本至 {normal_text_path} 時發生錯誤: {e}", exc_info=True)
 
         try:
             with open(srt_path, "w", encoding="utf-8") as f:
                 f.write(srt_content)
-            logging.info(f"Successfully wrote SRT to: {srt_path}")
+            logging.info(f"SRT 字幕已成功寫入: {srt_path}")
         except IOError as e:
-            logging.error(f"Error writing SRT to {srt_path}: {e}", exc_info=True)
-            continue # If file writing fails, don't mark as processed
+            logging.error(f"寫入 SRT 字幕至 {srt_path} 時發生錯誤: {e}", exc_info=True)
+            continue # 如果檔案寫入失敗，則不標記為已處理
 
-        # If all outputs for this file are successfully saved, mark as processed
+        # 如果此檔案的所有輸出都已成功保存，則標記為已處理
         processed_files.add(audio_file_name)
         save_processed_files(STATE_FILE_PATH, processed_files)
-        logging.info(f"Marked '{audio_file_name}' as processed and updated state file.")
+        logging.info(f"已將 '{audio_file_name}' 標記為已處理並更新狀態檔案。")
 
-    logging.info("All audio files processed.")
-    logging.info("local_transcriber.py script finished.")
+    logging.info("所有音頻檔案處理完畢。")
+    logging.info("local_transcriber.py 腳本已完成。")
 
 if __name__ == "__main__":
     main()
