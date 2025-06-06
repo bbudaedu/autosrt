@@ -14,7 +14,7 @@ STATE_FILE_PATH = os.path.join(OUTPUT_TRANSCRIPTIONS_ROOT_DIR, ".processed_audio
 
 
 # --- 輔助函數 ---
-def load_processed_files(state_file_path, logger): # logger instance passed for logging within function
+def load_processed_files(state_file_path, logger): # logger 實例傳入，用於函數內日誌記錄
     # 從狀態檔案載入已處理的檔案名稱集合
     try:
         if os.path.exists(state_file_path):
@@ -29,7 +29,7 @@ def load_processed_files(state_file_path, logger): # logger instance passed for 
         logger.error(f"載入狀態檔案 '{state_file_path}' 時發生錯誤: {e}。將從頭開始處理。", exc_info=True)
     return set()
 
-def save_processed_files(state_file_path, processed_files_set, logger): # logger instance passed
+def save_processed_files(state_file_path, processed_files_set, logger): # logger 實例傳入
     # 將已處理的檔案名稱集合儲存到狀態檔案
     temp_state_file_path = state_file_path + ".tmp" # 使用臨時檔案以確保原子性寫入
     try:
@@ -86,7 +86,7 @@ def main():
     logger.info(f"將使用以下初始提示詞進行轉錄: '{current_initial_prompt}'")
 
     # --- 載入狀態 ---
-    processed_files = load_processed_files(STATE_FILE_PATH, logger) # Pass logger
+    processed_files = load_processed_files(STATE_FILE_PATH, logger) # 傳入 logger
     logger.info(f"從狀態檔案 '{STATE_FILE_PATH}' 載入了 {len(processed_files)} 個已處理檔案的記錄。")
 
     # --- 掛載 Google Drive ---
@@ -178,7 +178,6 @@ def main():
                 whisper_transcription_lines.append(cleaned_text)
 
         normal_text_content = "\n".join(whisper_transcription_lines)
-        # logger.debug(f"\n檔案 '{base_name}' 的一般文本預覽 (前100字符):\n'{normal_text_content[:100]}...'") # 用於調試
 
         # --- 生成 SRT 內容 ---
         srt_content = ""
@@ -193,7 +192,6 @@ def main():
                 srt_content += f"{start_time_srt} --> {end_time_srt}\n"
                 srt_content += f"{cleaned_segment_text}\n\n"
                 srt_sequence_number += 1
-        # logger.debug(f"\n檔案 '{base_name}' 的 SRT 內容預覽 (前100字符):\n'{srt_content[:100]}...'") # 用於調試
 
 
         # --- 輸出到檔案 ---
@@ -227,7 +225,7 @@ def main():
 
         # 如果此檔案的所有輸出都已成功保存，則標記為已處理
         processed_files.add(audio_file_name)
-        save_processed_files(STATE_FILE_PATH, processed_files, logger) # Pass logger
+        save_processed_files(STATE_FILE_PATH, processed_files, logger) # 傳入 logger
         logger.info(f"已將 '{audio_file_name}' 標記為已處理並更新狀態檔案。")
 
     logger.info("所有音頻檔案處理完畢。")
