@@ -7,7 +7,7 @@ import json
 
 # --- 配置變數 ---
 MODEL_SIZE = "large-v3"
-INITIAL_PROMPT_TEXT = "這是佛教關於密教真言宗藥師佛" # 如果需要，可以考慮使其可配置
+DEFAULT_INITIAL_PROMPT = "這是佛教關於密教真言宗藥師佛" # 初始提示詞的默認值
 INPUT_AUDIO_DIR = "/content/drive/MyDrive/input_audio"
 OUTPUT_TRANSCRIPTIONS_ROOT_DIR = "/content/drive/MyDrive/output_transcriptions" # 新子目錄的根目錄
 STATE_FILE_PATH = os.path.join(OUTPUT_TRANSCRIPTIONS_ROOT_DIR, ".processed_audio_files.json") # 狀態檔案路徑
@@ -69,6 +69,11 @@ def main():
         ]
     )
     logging.info("local_transcriber.py 腳本已啟動。")
+
+    # --- 獲取用戶輸入的初始提示詞 ---
+    user_prompt_input = input(f"請輸入 Whisper 轉錄時使用的初始提示詞 (默認值: '{DEFAULT_INITIAL_PROMPT}'): ")
+    current_initial_prompt = user_prompt_input if user_prompt_input else DEFAULT_INITIAL_PROMPT
+    logging.info(f"將使用以下初始提示詞進行轉錄: '{current_initial_prompt}'")
 
     # --- 載入狀態 ---
     processed_files = load_processed_files(STATE_FILE_PATH)
@@ -143,7 +148,7 @@ def main():
             segments_generator, info = model.transcribe(
                 audio_path,
                 beam_size=5,
-                initial_prompt=INITIAL_PROMPT_TEXT,
+                initial_prompt=current_initial_prompt, # 使用用戶定義或默認的提示詞
                 vad_filter=True,
                 vad_parameters=vad_parameters
             )

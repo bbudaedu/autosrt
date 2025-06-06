@@ -11,6 +11,7 @@ import requests
 import json
 import time
 import re # 為 SRT 解析添加
+import glob # For PDF cleanup
 from IPython.display import HTML # <-- 修正：導入 HTML
 import warnings # 導入 warnings 模組
 
@@ -273,7 +274,67 @@ def initial_setup():
         logging.error(f"Google Drive 掛載失敗: {e}", exc_info=True)
         # exit() # 原始的 exit
 
-    logging.info(f"正在從 '{pdf_handout_dir}' 提取 PDF 講義內容...")
+    # --- PDF 講義文件夾清理 ---
+    logging.info(f"準備清理 PDF 講義文件夾: '{pdf_handout_dir}'...")
+    if os.path.exists(pdf_handout_dir):
+        pdf_files_to_delete = []
+        # 查找 .pdf 和 .PDF 文件
+        pdf_files_to_delete.extend(glob.glob(os.path.join(pdf_handout_dir, "*.pdf")))
+        pdf_files_to_delete.extend(glob.glob(os.path.join(pdf_handout_dir, "*.PDF")))
+
+        if not pdf_files_to_delete:
+            logging.info("PDF 講義文件夾中沒有找到 PDF 文件，無需清理。")
+        else:
+            deleted_count = 0
+            for pdf_file in pdf_files_to_delete:
+                try:
+                    os.remove(pdf_file)
+                    logging.debug(f"已刪除舊 PDF 文件: {pdf_file}") # DEBUG 級別記錄單個文件刪除
+                    deleted_count += 1
+                except Exception as e_remove:
+                    logging.error(f"刪除 PDF 文件 '{pdf_file}' 時發生錯誤: {e_remove}", exc_info=True)
+            logging.info(f"PDF 講義文件夾清理完畢。共刪除了 {deleted_count} 個 PDF 文件。")
+    else:
+        logging.warning(f"PDF 講義文件夾 '{pdf_handout_dir}' 不存在，跳過清理步驟。")
+
+    # --- PDF 提取 ---
+    # --- PDF Upload UI ---
+    logging.info(f"準備 PDF 上傳界面，目標文件夾: '{pdf_handout_dir}'")
+    try:
+        from google.colab import files
+
+        # Ensure the pdf_handout_dir exists before attempting to save uploaded files there
+        if not os.path.exists(pdf_handout_dir):
+            logging.info(f"PDF 講義文件夾 '{pdf_handout_dir}' 不存在，正在創建...")
+            os.makedirs(pdf_handout_dir, exist_ok=True)
+            logging.info(f"PDF 講義文件夾 '{pdf_handout_dir}' 創建成功。")
+
+        # Clear any previous output from the upload cell, if this is re-run in Colab
+        # from IPython.display import clear_output # Not strictly necessary if user runs cells sequentially
+        # clear_output(wait=True)
+
+        print(f"請選擇要上傳到 '{pdf_handout_dir}' 的 PDF 講義文件：") # User-facing print
+        uploaded_files = files.upload() # This is a blocking call in Colab
+
+        if not uploaded_files:
+            logging.info("沒有選擇任何 PDF 文件進行上傳。")
+        else:
+            for file_name, file_content in uploaded_files.items():
+                destination_path = os.path.join(pdf_handout_dir, file_name)
+                try:
+                    with open(destination_path, 'wb') as f:
+                        f.write(file_content)
+                    logging.info(f"文件 '{file_name}' 已成功上傳至 '{destination_path}'。")
+                except Exception as e_upload:
+                    logging.error(f"儲存上傳的 PDF 文件 '{file_name}' 至 '{destination_path}' 時發生錯誤: {e_upload}", exc_info=True)
+            logging.info(f"共 {len(uploaded_files)} 個 PDF 文件上傳操作完成。")
+
+    except ImportError:
+        logging.warning("`google.colab.files` 模塊無法導入。PDF 上傳功能僅在 Google Colab 環境中可用。")
+    except Exception as e_colab_files:
+        logging.error(f"使用 `google.colab.files.upload()` 進行 PDF 上傳時發生錯誤: {e_colab_files}", exc_info=True)
+
+    logging.info(f"正在從 '{pdf_handout_dir}' 提取 PDF 講義內容...") # 在清理和潛在上傳之後執行
     pdf_context_text_local = extract_text_from_pdf_dir(pdf_handout_dir)
     if pdf_context_text_local is None or not pdf_context_text_local.strip():
         logging.warning(f"未能從資料夾 '{pdf_handout_dir}' 提取到有效文本，或資料夾不存在/為空。Gemini 校對將不使用講義參考。")

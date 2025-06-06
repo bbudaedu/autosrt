@@ -15,12 +15,14 @@
 ### 2.1. `local_transcriber.py` - 本地音頻轉錄腳本
 *   **功能：**
     *   使用 `faster-whisper` 模型對指定的音頻文件夾中的音頻進行批量轉錄。
+    *   交互式初始提示詞：腳本運行開始時，會提示用戶輸入自定義的 `INITIAL_PROMPT_TEXT`（初始轉錄提示詞），並提供一個默認值。所選提示詞將用於指導 Whisper 模型進行轉錄。
     *   為每個音頻文件生成兩種輸出：
         1.  純文本文件 (`[文件名]_normal.txt`)：包含完整的、經過初步清理的轉錄文字。
         2.  SRT 字幕文件 (`[文件名].srt`)：包含帶有時間碼的字幕片段。
     *   支持狀態持久化：能夠記錄已成功處理的音頻文件，在中斷後重新運行時會自動跳過這些文件。
     *   包含中文日誌記錄。
 *   **輸入：**
+    *   運行時用戶輸入的初始提示詞。
     *   位於 Google Drive 中 `INPUT_AUDIO_DIR` 指定的文件夾內的音頻文件（支持 `.mp3`, `.wav`, `.flac`, `.m4a`, `.mp4`）。
 *   **輸出：**
     *   在 Google Drive 中 `OUTPUT_TRANSCRIPTIONS_ROOT_DIR` 指定的路徑下，為每個音頻文件創建一個與音頻文件同名的子文件夾（例如 `[音頻文件名基礎名]/`）。
@@ -36,12 +38,14 @@
             *   B欄：調用 Gemini API 進行校對後的文本（B1為標題 "Gemini"）。
         2.  **"時間軸"**：
             *   從 `.srt` 文件解析並上傳字幕的序號、開始時間、結束時間和文字。
+    *   PDF講義管理：在提取講義內容前，腳本會自動清理 `pdf_handout_dir` 文件夾中所有舊的 PDF 文件。
+    *   交互式PDF上傳：清理舊PDF後，腳本會提供一個文件上傳界面，允許用戶上傳新的 PDF 文件至 `pdf_handout_dir`，作為 Gemini 校對的參考資料。
     *   利用 Gemini API (`gemini-1.5-pro-latest` 模型) 對 "文本校對" 工作表A欄中的文本進行校對，參考 `pdf_handout_dir` 文件夾中的 PDF 講義內容（如果提供）。
     *   支持 Gemini 校對的狀態持久化：記錄已成功完成 Gemini 校對的電子表格，在中斷後重新運行時會跳過這些電子表格的 Gemini API 調用步驟。
     *   包含中文日誌記錄。
 *   **輸入：**
     *   `local_transcriber.py` 腳本的輸出文件夾和文件。
-    *   位於 Google Drive 中 `pdf_handout_dir` 指定文件夾內的 PDF 講義（可選，用於 Gemini 校對參考）。
+    *   運行時通過交互式界面上傳的 PDF 講義文件，這些文件將被存儲在 Google Drive 中 `pdf_handout_dir` 指定的文件夾內，用於 Gemini 校對參考。
     *   Google Colab Secrets 中的 `GEMINI_API_KEY`。
 *   **輸出：**
     *   在 Google Drive 中創建或更新 Google Spreadsheets。
@@ -123,8 +127,13 @@ print("\n--- 所有依賴包安裝指令已執行 ---")
 推薦的執行流程如下：
 
 1.  **環境設定儲存格**：執行包含所有依賴安裝命令的 Colab 儲存格。如果提示，請重新啟動執行階段。
-2.  **運行 `local_transcriber.py`**：處理音頻文件，生成 `_normal.txt` 和 `.srt` 文件到 `output_transcriptions/[audio_basename]/`。
-3.  **運行 `sheets_gemini_processor.py`**：讀取上述輸出，創建/更新 Google Sheets，並調用 Gemini API 進行校對。
+2.  **運行 `local_transcriber.py`**：
+    *   腳本啟動時，系統會提示您輸入或確認用於 Whisper 轉錄的初始提示詞。
+    *   之後，腳本會處理音頻文件，生成 `_normal.txt` 和 `.srt` 文件到 `output_transcriptions/[audio_basename]/`。
+3.  **運行 `sheets_gemini_processor.py`**：
+    *   腳本啟動時，會自動清理舊的 PDF 講義文件夾 (`pdf_handout_dir`)。
+    *   之後，會提供一個文件上傳界面，讓您上傳本次任務所需的 PDF 參考資料到 `pdf_handout_dir`。
+    *   接著，腳本會讀取 `local_transcriber.py` 的輸出，創建/更新 Google Sheets，並調用 Gemini API 進行校對。
 4.  **（可選）運行 `text_segmenter_colab.py`**：如果您需要將校對後的文本按30分鐘切分，則在 `sheets_gemini_processor.py` 完成對應的電子表格處理後，運行此腳本。
 
 ## 5. 狀態持久化
