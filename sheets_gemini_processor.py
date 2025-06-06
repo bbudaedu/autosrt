@@ -1,29 +1,3 @@
-# 清除 pip 緩存，以確保下載最新且正確的包
-!pip cache purge
-
-# 安裝必要的函式庫
-!apt update && apt install -y libcublas11 libcudnn8
-
-# 優先強制安裝兼容的 NumPy 版本，確保沒有舊的或衝突的版本殘留
-# 這是解決 RecursionError 的關鍵步驟
-!pip install --force-reinstall numpy==1.26.4
-
-print("\n--- 第一部分安裝完成 ---")
-print("請務必重新啟動 Colab 執行階段 (Runtime -> Restart runtime)，然後運行第二個程式碼區塊。")
-
-
-# 確保 onnxruntime 和 ctranslate2 在正確的 NumPy 環境下安裝
-# 使用 --no-deps 避免 pip 重新安裝 NumPy 的最新版本
-!pip install --force-reinstall --no-deps ctranslate2==4.3.1
-!pip install --force-reinstall --no-deps onnxruntime-gpu==1.15.0 # <-- 明確指定 GPU 版本並使用 --no-deps
-
-# 安裝 faster-whisper 和其他工具
-# 移除了 jiwer，以解決與 NumPy 的依賴衝突
-!pip install faster-whisper
-!pip install gspread oauth2client
-!pip install pypdf
-!pip install requests
-
 import os
 from google.colab import drive, auth, userdata
 # from faster_whisper import WhisperModel # 已移除
