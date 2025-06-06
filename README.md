@@ -40,12 +40,14 @@
             *   從 `.srt` 文件解析並上傳字幕的序號、開始時間、結束時間和文字。
     *   PDF講義管理：在提取講義內容前，腳本會自動清理 `pdf_handout_dir` 文件夾中所有舊的 PDF 文件。
     *   交互式PDF上傳：清理舊PDF後，腳本會提供一個文件上傳界面，允許用戶上傳新的 PDF 文件至 `pdf_handout_dir`，作為 Gemini 校對的參考資料。
-    *   利用 Gemini API (`gemini-1.5-pro-latest` 模型) 對 "文本校對" 工作表A欄中的文本進行校對，參考 `pdf_handout_dir` 文件夾中的 PDF 講義內容（如果提供）。
+    *   Gemini API 提示詞自定義：腳本運行初期會提示用戶輸入用於指導 Gemini API 的“主要指令”和“校對規則”，並提供可編輯的默認值。這允許用戶根據不同任務需求靈活調整對 Gemini 的指令。
+    *   利用 Gemini API (`gemini-1.5-pro-latest` 模型) 對 "文本校對" 工作表A欄中的文本進行校對，參考 `pdf_handout_dir` 文件夾中的 PDF 講義內容（如果提供）以及用戶配置的提示詞。
     *   支持 Gemini 校對的狀態持久化：記錄已成功完成 Gemini 校對的電子表格，在中斷後重新運行時會跳過這些電子表格的 Gemini API 調用步驟。
     *   包含中文日誌記錄。
 *   **輸入：**
     *   `local_transcriber.py` 腳本的輸出文件夾和文件。
     *   運行時通過交互式界面上傳的 PDF 講義文件，這些文件將被存儲在 Google Drive 中 `pdf_handout_dir` 指定的文件夾內，用於 Gemini 校對參考。
+    *   Gemini API 提示詞：腳本啟動時，會提示用戶確認或修改用於 Gemini API 的主要指令和校對規則。默認值已在腳本中提供。
     *   Google Colab Secrets 中的 `GEMINI_API_KEY`。
 *   **輸出：**
     *   在 Google Drive 中創建或更新 Google Spreadsheets。
@@ -122,6 +124,28 @@ print("\n--- 所有依賴包安裝指令已執行 ---")
 ### 3.5. API 密鑰設置
 *   對於 `sheets_gemini_processor.py` 中的 Gemini API 功能，您需要在 Google Colab 的 **Secrets (密鑰)** 功能中添加一個名為 `GEMINI_API_KEY` 的密鑰，其值為您的 Gemini API 金鑰。
 
+### 3.6. Gemini API 提示詞默認內容
+腳本為 Gemini API 校對提供了以下可自定義的默認提示詞結構：
+
+**默認主要指令 (Main Instruction):**
+```text
+你是一個佛學大師，精通經律論三藏十二部經典。
+以下文本是whisper產生的字幕文本，關於觀無量壽經、善導大師觀經四帖疏、傳通記的內容。
+有很多聽打錯誤，幫我依據我提供的上課講義校對文本，嚴格依照以下規則，直接修正錯誤：
+```
+
+**默認校對規則 (Correction Rules):**
+```text
+校對規則：
+    1. 這是講座字幕的文本。請逐行處理提供的「字幕文本」。
+    2. **嚴格依照原本的斷句輸出，保持每一行的獨立性，不要合併或拆分行。輸出結果必須與輸入的行數完全相同 (共 {len_transcribed_text_lines} 行)。**
+    3. 如果某一行不需要修改，請直接輸出原始該行內容。
+    4. 根據「上課講義內容」修正「字幕文本」中的任何聽打錯誤或不準確之處。
+    5. 不要加標點符號。
+    6. 輸出繁體中文。
+```
+*注意：校對規則中的 `{len_transcribed_text_lines}` 是一個佔位符，腳本在實際調用 API 前會動態替換為當前處理文本的實際行數。如果您自定義此規則，請確保保留此佔位符的邏輯（如果需要精確行數控制）或理解其含義。*
+
 ## 4. 執行順序
 
 推薦的執行流程如下：
@@ -133,7 +157,8 @@ print("\n--- 所有依賴包安裝指令已執行 ---")
 3.  **運行 `sheets_gemini_processor.py`**：
     *   腳本啟動時，會自動清理舊的 PDF 講義文件夾 (`pdf_handout_dir`)。
     *   之後，會提供一個文件上傳界面，讓您上傳本次任務所需的 PDF 參考資料到 `pdf_handout_dir`。
-    *   接著，腳本會讀取 `local_transcriber.py` 的輸出，創建/更新 Google Sheets，並調用 Gemini API 進行校對。
+    *   接下來，系統會提示您確認或修改用於指導 Gemini API 的“主要指令”和“校對規則”。
+    *   然後，腳本會讀取 `local_transcriber.py` 的輸出，創建/更新 Google Sheets，並調用 Gemini API 進行校對。
 4.  **（可選）運行 `text_segmenter_colab.py`**：如果您需要將校對後的文本按30分鐘切分，則在 `sheets_gemini_processor.py` 完成對應的電子表格處理後，運行此腳本。
 
 ## 5. 狀態持久化
