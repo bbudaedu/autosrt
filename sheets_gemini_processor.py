@@ -23,7 +23,7 @@ TRANSCRIPTIONS_ROOT_INPUT_DIR = "/content/drive/MyDrive/output_transcriptions" #
 pdf_handout_dir = "/content/drive/MyDrive/lecture_handouts" # 保留，用於 Gemini 上下文
 GEMINI_STATE_FILE_PATH = os.path.join(TRANSCRIPTIONS_ROOT_INPUT_DIR, ".gemini_processed_state.json") # Gemini 處理狀態檔案路徑
 INTER_SPREADSHEET_DELAY_SECONDS = 15 # 秒，處理不同表格間的延遲
-GEMINI_API_BATCH_MAX_LINES = 50  # 每批次發送給 Gemini API 的最大行數 (測試用小批量)
+GEMINI_API_BATCH_MAX_LINES = 100  # 每批次發送給 Gemini API 的最大行數 (Pro模型無上下文測試值)
 
 # --- 默認 Gemini API 提示詞常量 ---
 DEFAULT_GEMINI_MAIN_INSTRUCTION = (
@@ -164,8 +164,8 @@ def get_gemini_correction(logger, transcribed_text_lines, pdf_context, main_inst
         logger.error(f"配置 Gemini SDK 時出錯: {e}", exc_info=True)
         return None
 
-    actual_model_name = "gemini-1.5-flash-latest" # 使用 Flash 模型
-    logger.info(f"Gemini API 將使用模型: {actual_model_name}")
+    actual_model_name = "gemini-1.5-pro-latest" # Reverted to Pro model
+    logger.info(f"Gemini API 將使用模型: {actual_model_name} (根據用戶最新指示配置)")
 
     model = genai.GenerativeModel(
         model_name=actual_model_name,
@@ -261,8 +261,8 @@ def get_gemini_correction(logger, transcribed_text_lines, pdf_context, main_inst
             return None
 
         if batch_idx < num_batches - 1:
-            logger.info(f"批次 {batch_idx+1}/{num_batches} 處理完成，等待 5 秒...") # Updated delay
-            time.sleep(5) # Updated delay
+            logger.info(f"批次 {batch_idx+1}/{num_batches} 處理完成，等待 30 秒...") # Updated delay
+            time.sleep(30) # Updated delay
 
     logger.info("所有批次的 Gemini API 校對請求均已處理完成。")
     final_corrected_text_str = "\n".join(all_corrected_lines_from_batches)
@@ -395,7 +395,7 @@ def initial_setup(logger_instance):
         logger_instance.error(f"使用 `google.colab.files.upload()` 進行 PDF 上傳時發生錯誤: {e_colab_files}", exc_info=True)
 
     logger_instance.info(f"正在從 '{pdf_handout_dir}' 提取 PDF 講義內容...")
-    pdf_context_text_local = extract_text_from_pdf_dir(logger_instance, pdf_handout_dir) # Pass logger
+    pdf_context_text_local = extract_text_from_pdf_dir(logger_instance, pdf_handout_dir)
     if pdf_context_text_local is None or not pdf_context_text_local.strip():
         logger_instance.warning(f"未能從資料夾 '{pdf_handout_dir}' 提取到有效文本，或資料夾不存在/為空。Gemini 校對將不使用講義參考。")
         pdf_context_text = ""
@@ -412,7 +412,7 @@ def process_transcriptions_and_apply_gemini(logger, current_main_instruction_par
         logger.error("gspread client (gc) 未初始化。身份驗證可能失敗。")
         return
 
-    gemini_processed_items = load_gemini_processed_state(logger, GEMINI_STATE_FILE_PATH) # Pass logger
+    gemini_processed_items = load_gemini_processed_state(logger, GEMINI_STATE_FILE_PATH)
     logger.info(f"已載入 {len(gemini_processed_items)} 個已完成 Gemini 校對的項目記錄。")
 
     logger.info(f"開始掃描輸入目錄: {TRANSCRIPTIONS_ROOT_INPUT_DIR}")
@@ -514,14 +514,13 @@ def process_transcriptions_and_apply_gemini(logger, current_main_instruction_par
                     logger.info(f"準備對 '{base_name}' 的文本進行 Gemini API 校對...")
                     whisper_lines_for_gemini = normal_text_content.splitlines()
 
-                    # Test: Pass empty string for pdf_context
                     test_pdf_context = ""
                     logger.info("注意：本次運行將忽略 PDF 講義上下文，僅使用轉錄文本進行 Gemini 校對測試。")
 
                     corrected_text_str = get_gemini_correction(
                         logger,
                         whisper_lines_for_gemini,
-                        test_pdf_context, # Pass empty string for PDF context
+                        test_pdf_context,
                         current_main_instruction_param,
                         current_correction_rules_param
                     )
@@ -534,7 +533,7 @@ def process_transcriptions_and_apply_gemini(logger, current_main_instruction_par
                             logger.info(f"Gemini API 校對完成 ({len(gemini_lines)} 行)。已成功上傳 Gemini 校對結果至 B欄 ({base_name})。")
 
                             gemini_processed_items.add(base_name)
-                            save_gemini_processed_state(logger, GEMINI_STATE_FILE_PATH, gemini_processed_items) # Pass logger
+                            save_gemini_processed_state(logger, GEMINI_STATE_FILE_PATH, gemini_processed_items)
                             logger.info(f"已將 '{base_name}' 標記為 Gemini 校對完成並更新狀態檔案。")
                         except Exception as e_update:
                             logger.error(f"更新 B欄 Gemini 校對結果時發生錯誤 ({base_name}): {e_update}", exc_info=True)

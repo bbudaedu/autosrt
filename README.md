@@ -41,7 +41,7 @@
     *   PDF講義管理：在提取講義內容前，腳本會自動清理 `pdf_handout_dir` 文件夾中所有舊的 PDF 文件。
     *   交互式PDF上傳：清理舊PDF後，腳本會提供一個文件上傳界面，允許用戶上傳新的 PDF 文件至 `pdf_handout_dir`，作為 Gemini 校對的參考資料。
     *   Gemini API 提示詞自定義：腳本運行初期會提示用戶輸入用於指導 Gemini API 的“主要指令”和“校對規則”，並提供可編輯的默認值。這允許用戶根據不同任務需求靈活調整對 Gemini 的指令。
-    *   Gemini API 交互優化：調用 Gemini API 的部分已更新為使用官方 `google-generativeai` Python SDK，並默認使用 `gemini-1.5-flash-latest` 模型（此模型通常在免費額度方面提供更寬鬆的速率限制）。同時，內部增強了對長文本的分批處理及每批次返回行數的校驗與自動調整機制，以確保輸出文本結構的完整性。
+    *   Gemini API 交互優化：調用 Gemini API 的部分已更新為使用官方 `google-generativeai` Python SDK，並默認使用 `gemini-1.5-pro-latest` 模型。同時，內部增強了對長文本的分批處理及每批次返回行數的校驗與自動調整機制，以確保輸出文本結構的完整性。
     *   支持 Gemini 校對的狀態持久化：記錄已成功完成 Gemini 校對的電子表格，在中斷後重新運行時會跳過這些電子表格的 Gemini API 調用步驟。
     *   包含中文日誌記錄。
 *   **輸入：**
@@ -148,12 +148,12 @@ print("\n--- 所有依賴包安裝指令已執行 ---")
 *注意：校對規則中的 `{batch_line_count}` 是一個佔位符。當腳本將文本分批提交給 Gemini API 時，它會在每個批次的 API 調用前，動態地將此佔位符替換為該**當前批次所包含的文本行數**。如果您自定義此規則並希望引用行數，請使用此佔位符。*
 
 ### 3.7. Gemini API 文本分批處理機制
-為了更穩定地處理較長的轉錄文本，`sheets_gemini_processor.py` 內部實現了對提交給 Gemini API 的文本進行分批處理的機制。腳本會將一個文件的完整轉錄內容按照預設的行數上限（當前為測試配置，內部設置為 `GEMINI_API_BATCH_MAX_LINES = 50` 行）分割成若干批次。每個批次會單獨發送給 Gemini API 進行校對，並應用相同的重試邏輯。為適應 API 限制，在每個批次成功處理後，腳本會內置一個短暫的延遲（當前為測試配置，設為 5 秒）。所有批次成功處理後，結果會被合併。
+為了更穩定地處理較長的轉錄文本，`sheets_gemini_processor.py` 內部實現了對提交給 Gemini API 的文本進行分批處理的機制。腳本會將一個文件的完整轉錄內容按照預設的行數上限（當前為 Pro 模型無上下文測試配置，內部設置為 `GEMINI_API_BATCH_MAX_LINES = 100` 行）分割成若干批次。每個批次會單獨發送給 Gemini API 進行校對，並應用相同的重試邏輯。為遵循 `gemini-1.5-pro-latest` 的 RPM (每分鐘請求數) 限制，在每個批次成功處理後，腳本會內置一個延遲（當前配置為 30 秒）。所有批次成功處理後，結果會被合併。
 
 此機制有助於降低單個 API 請求因文本過長而失敗的風險，並能更有效地利用 API 的處理能力。
 
 ### 3.8. 重要測試配置說明
-目前版本的 `sheets_gemini_processor.py` 為了進行 API 速率限制的最小化負載測試，在調用 Gemini API 時**默認配置為不使用 PDF 講義上下文** (即 `pdf_context` 參數會被傳遞為空字符串)。這意味著 Gemini 的校對將僅基於轉錄文本本身和您提供的通用指令及校對規則。
+目前版本的 `sheets_gemini_processor.py` 為了針對 `gemini-1.5-pro-latest` 模型進行嚴格的 API 速率限制和無上下文負載測試，在調用 Gemini API 時**默認配置為不使用 PDF 講義上下文** (即 `pdf_context` 參數會被傳遞為空字符串)。這意味著 Gemini 的校對將僅基於轉錄文本本身和您提供的通用指令及校對規則。
 
 如果您希望恢復使用 PDF 上下文進行校對，您需要手動修改 `sheets_gemini_processor.py` 腳本中 `process_transcriptions_and_apply_gemini` 函數內對 `get_gemini_correction` 的調用，將實際從 `initial_setup` 獲取的 `pdf_context_text` 變量傳遞給 `pdf_context` 參數。例如，將：
 `corrected_text_str = get_gemini_correction(logger, whisper_lines_for_gemini, "", current_main_instruction_param, current_correction_rules_param)`
