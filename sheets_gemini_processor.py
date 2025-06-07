@@ -13,7 +13,7 @@ import time
 import re # 為 SRT 解析添加
 import glob # 用於 PDF 清理
 from IPython.display import HTML # <-- 修正：導入 HTML
-import warnings # 導入 warnings 模組
+import warnings # 導入 warnings 模듈
 
 # 抑制 gspread 的 DeprecationWarning
 warnings.filterwarnings("ignore", category=DeprecationWarning)
@@ -582,5 +582,3 @@ if __name__ == '__main__':
         process_transcriptions_and_apply_gemini(logger, main_instr, correct_rules)
 
     logger.info("sheets_gemini_processor.py 腳本已完成。")
-
-[end of sheets_gemini_processor.py]
