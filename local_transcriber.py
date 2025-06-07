@@ -74,9 +74,7 @@ def main():
 
         # 將 handler 添加到 logger
         logger.addHandler(ch)
-
-    # 可選：阻止日誌消息傳播到 root logger，如果擔心 root logger 的配置
-    # logger.propagate = False
+        logger.propagate = False # 阻止日誌消息傳播到 root logger
 
     logger.info("local_transcriber.py 腳本已啟動。")
 
