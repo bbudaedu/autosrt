@@ -62,19 +62,20 @@ def main():
     logger = logging.getLogger('LocalTranscriberLogger')
     logger.setLevel(logging.INFO)
 
-    # 檢查 logger 是否已有 handlers，防止重複添加 (在 Colab 中多次運行儲存格時可能發生)
-    if not logger.handlers:
-        # 創建控制台 handler
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.INFO)
+    # 清除現有的 handlers (如果在 Colab 中多次運行儲存格，這很重要)
+    logger.handlers.clear()
 
-        # 創建 formatter 並添加到 handler
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        ch.setFormatter(formatter)
+    # 創建控制台 handler
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
 
-        # 將 handler 添加到 logger
-        logger.addHandler(ch)
-        logger.propagate = False # 阻止日誌消息傳播到 root logger
+    # 創建 formatter 並添加到 handler
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+
+    # 將 handler 添加到 logger
+    logger.addHandler(ch)
+    logger.propagate = False # 阻止日誌消息傳播到 root logger
 
     logger.info("local_transcriber.py 腳本已啟動。")
 

@@ -164,8 +164,12 @@ def get_gemini_correction(logger, transcribed_text_lines, pdf_context, main_inst
         logger.error(f"配置 Gemini SDK 時出錯: {e}", exc_info=True)
         return None
 
+    # Define model name variable for clarity and logging
+    actual_model_name = "gemini-1.5-flash-latest"
+    logger.info(f"Gemini API 將使用模型: {actual_model_name}")
+
     model = genai.GenerativeModel(
-        model_name="gemini-1.5-pro-latest",
+        model_name=actual_model_name, # Use variable
         generation_config={
             "temperature": 0.2,
             "top_p": 0.95,
