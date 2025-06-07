@@ -41,8 +41,7 @@
     *   PDF講義管理：在提取講義內容前，腳本會自動清理 `pdf_handout_dir` 文件夾中所有舊的 PDF 文件。
     *   交互式PDF上傳：清理舊PDF後，腳本會提供一個文件上傳界面，允許用戶上傳新的 PDF 文件至 `pdf_handout_dir`，作為 Gemini 校對的參考資料。
     *   Gemini API 提示詞自定義：腳本運行初期會提示用戶輸入用於指導 Gemini API 的“主要指令”和“校對規則”，並提供可編輯的默認值。這允許用戶根據不同任務需求靈活調整對 Gemini 的指令。
-    *   利用 Gemini API (`gemini-1.5-pro-latest` 模型) 對 "文本校對" 工作表A欄中的文本進行校對，參考 `pdf_handout_dir` 文件夾中的 PDF 講義內容（如果提供）以及用戶配置的提示詞。
-    *   Gemini API 長文本分批處理：為處理可能過長的轉錄文本並提高 API 調用的穩定性，腳本會自動將待校對的文本按預設行數（例如每100行）分割成多個小批次，然後逐批提交給 Gemini API 進行處理。任何一個批次的永久性失敗將導致整個文件針對 Gemini 的校對被視為失敗。
+    *   Gemini API 交互優化：調用 Gemini API 的部分已更新為使用官方 `google-generativeai` Python SDK，以提升連接的穩定性和對未來 API 更新的兼容性。同時，內部增強了對長文本的分批處理及每批次返回行數的校驗與自動調整機制，以確保輸出文本結構的完整性。
     *   支持 Gemini 校對的狀態持久化：記錄已成功完成 Gemini 校對的電子表格，在中斷後重新運行時會跳過這些電子表格的 Gemini API 調用步驟。
     *   包含中文日誌記錄。
 *   **輸入：**
@@ -103,10 +102,11 @@ print("\nINFO: 安裝 faster-whisper...")
 !pip install faster-whisper
 
 # 5. 安裝 Google API、PDF 和 HTTP 請求相關函式庫
-print("\nINFO: 安裝 gspread, pypdf, requests...")
+print("\nINFO: 安裝 gspread, pypdf, requests, google-generativeai...")
 !pip install gspread
 !pip install pypdf
 !pip install requests
+!pip install google-generativeai # Gemini SDK
 
 print("\n--- 所有依賴包安裝指令已執行 ---")
 ```
@@ -175,3 +175,4 @@ print("\n--- 所有依賴包安裝指令已執行 ---")
 ## 6. 日誌與註釋語言
 
 *   本項目的 Python 腳本中的**日誌信息**和**代碼註釋**主要使用**中文**編寫。
+*   日誌系統：所有腳本均使用 Python 的 `logging` 模塊記錄詳細的操作日誌（中文）。日誌配置已優化，以確保在 Google Colab 環境中能清晰、無重複地輸出。

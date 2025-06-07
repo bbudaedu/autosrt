@@ -1,13 +1,13 @@
 import os
 from google.colab import drive, auth, userdata
-# from faster_whisper import WhisperModel # 已移除
+import google.generativeai as genai # Added for Gemini SDK
 import datetime # 保留，用於 PDF 日期邏輯 (如果有的話) 或通用工具
 import gspread
 from google.auth import default
 import logging # 為日誌記錄添加
 import textwrap
 import pypdf
-import requests
+import requests # Kept for now, though direct Gemini calls via requests are replaced
 import json
 import time
 import re # 為 SRT 解析添加
@@ -73,19 +73,18 @@ def execute_gspread_write(logger, gspread_operation_func, *args, max_retries=5, 
 
 
 # --- 輔助函式：從 PDF 資料夾提取所有文本 ---
-def extract_text_from_pdf_dir(pdf_dir):
-    # 此函數的日誌記錄已在先前步驟中本地化為中文。
+def extract_text_from_pdf_dir(logger, pdf_dir): # Added logger parameter
     full_text = []
     if not os.path.exists(pdf_dir):
-        logging.error(f"PDF 講義資料夾 '{pdf_dir}' 不存在。")
+        logger.error(f"PDF 講義資料夾 '{pdf_dir}' 不存在。")
         return None
 
     pdf_files = [f for f in os.listdir(pdf_dir) if f.lower().endswith('.pdf')]
     if not pdf_files:
-        logging.warning(f"資料夾 '{pdf_dir}' 中沒有找到任何 PDF 檔案。")
+        logger.warning(f"資料夾 '{pdf_dir}' 中沒有找到任何 PDF 檔案。")
         return None
 
-    logging.info(f"正在從資料夾 '{pdf_dir}' 中的 {len(pdf_files)} 個 PDF 檔案提取文本...")
+    logger.info(f"正在從資料夾 '{pdf_dir}' 中的 {len(pdf_files)} 個 PDF 檔案提取文本...")
     for pdf_file_name in pdf_files:
         pdf_path = os.path.join(pdf_dir, pdf_file_name)
         try:
@@ -93,58 +92,54 @@ def extract_text_from_pdf_dir(pdf_dir):
                 reader = pypdf.PdfReader(file)
                 for page_num in range(len(reader.pages)):
                     full_text.append(reader.pages[page_num].extract_text())
-            logging.info(f"  - 成功提取 '{pdf_file_name}'。")
+            logger.info(f"  - 成功提取 '{pdf_file_name}'。")
         except Exception as e:
-            logging.error(f"  - 從 '{pdf_file_name}' 提取文本時發生錯誤: {e}", exc_info=True)
+            logger.error(f"  - 從 '{pdf_file_name}' 提取文本時發生錯誤: {e}", exc_info=True)
 
     combined_text = "\n".join(full_text)
     if combined_text:
-        logging.info(f"所有 PDF 提取完成，共 {len(combined_text)} 字元文本。")
+        logger.info(f"所有 PDF 提取完成，共 {len(combined_text)} 字元文本。")
     else:
-        logging.warning("未能從任何 PDF 檔案提取到文本。")
+        logger.warning("未能從任何 PDF 檔案提取到文本。")
     return combined_text
 
 # --- Gemini 處理狀態持久化函數 ---
-def load_gemini_processed_state(state_file_path):
-    # 從狀態檔案載入已完成 Gemini 校對的項目集合
+def load_gemini_processed_state(logger, state_file_path): # Added logger parameter
     try:
         if os.path.exists(state_file_path):
             with open(state_file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                return set(data if isinstance(data, list) else []) # 確保是列表，轉換為集合以便高效查找
-        logging.info(f"Gemini 狀態檔案 '{state_file_path}' 未找到。將處理所有項目。")
+                return set(data if isinstance(data, list) else [])
+        logger.info(f"Gemini 狀態檔案 '{state_file_path}' 未找到。將處理所有項目。")
     except json.JSONDecodeError:
-        logging.warning(f"解碼 Gemini 狀態檔案 '{state_file_path}' 時發生錯誤。將重新處理所有項目。")
+        logger.warning(f"解碼 Gemini 狀態檔案 '{state_file_path}' 時發生錯誤。將重新處理所有項目。")
     except Exception as e:
-        logging.error(f"載入 Gemini 狀態檔案 '{state_file_path}' 時發生錯誤: {e}。將重新處理所有項目。", exc_info=True)
+        logger.error(f"載入 Gemini 狀態檔案 '{state_file_path}' 時發生錯誤: {e}。將重新處理所有項目。", exc_info=True)
     return set()
 
-def save_gemini_processed_state(state_file_path, processed_items_set):
-    # 將已完成 Gemini 校對的項目集合儲存到狀態檔案
-    temp_state_file_path = state_file_path + ".tmp" # 使用臨時檔案以確保原子性寫入
+def save_gemini_processed_state(logger, state_file_path, processed_items_set): # Added logger parameter
+    temp_state_file_path = state_file_path + ".tmp"
     try:
-        os.makedirs(os.path.dirname(state_file_path), exist_ok=True) # 確保目錄存在
+        os.makedirs(os.path.dirname(state_file_path), exist_ok=True)
         with open(temp_state_file_path, 'w', encoding='utf-8') as f:
-            json.dump(list(processed_items_set), f, ensure_ascii=False, indent=4) # 將集合轉換為列表以便 JSON 序列化
-        os.replace(temp_state_file_path, state_file_path) # 原子性重命名 (在 POSIX 系統上)
-        logging.debug(f"Gemini 處理狀態已成功儲存至 '{state_file_path}'。")
+            json.dump(list(processed_items_set), f, ensure_ascii=False, indent=4)
+        os.replace(temp_state_file_path, state_file_path)
+        logger.debug(f"Gemini 處理狀態已成功儲存至 '{state_file_path}'。")
     except Exception as e:
-        logging.error(f"儲存 Gemini 處理狀態至 '{state_file_path}' 時發生錯誤: {e}", exc_info=True)
+        logger.error(f"儲存 Gemini 處理狀態至 '{state_file_path}' 時發生錯誤: {e}", exc_info=True)
         if os.path.exists(temp_state_file_path):
             try:
                 os.remove(temp_state_file_path)
             except OSError as oe:
-                logging.error(f"移除臨時 Gemini 狀態檔案 '{temp_state_file_path}' 時發生錯誤: {oe}", exc_info=True)
+                logger.error(f"移除臨時 Gemini 狀態檔案 '{temp_state_file_path}' 時發生錯誤: {oe}", exc_info=True)
 
 # --- 輔助函數：解析 SRT 內容 ---
 def parse_srt_content(srt_content_str):
     segments = []
-    # 正則表達式，用於捕獲 ID、開始時間、結束時間和文本
-    # 處理單個片段的多行文本
     pattern = re.compile(
-        r"(\d+)\s*\n"                       # ID
-        r"(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\s*\n"  # 開始和結束時間
-        r"((?:.+\n?)+)",                  # 文本 (非貪婪模式，捕獲多行)
+        r"(\d+)\s*\n"
+        r"(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\s*\n"
+        r"((?:.+\n?)+)",
         re.MULTILINE
     )
     for match in pattern.finditer(srt_content_str):
@@ -156,18 +151,29 @@ def parse_srt_content(srt_content_str):
         })
     return segments
 
-# --- 輔助函式：調用 Gemini API 進行校對 (含分批處理邏輯) ---
+# --- 輔助函式：調用 Gemini API 進行校對 (使用 SDK 並含分批處理邏輯) ---
 def get_gemini_correction(logger, transcribed_text_lines, pdf_context, main_instruction, correction_rules):
-    api_key = userdata.get('GEMINI_API_KEY')
-    if not api_key:
-        print("錯誤: GEMINI_API_KEY 未設定。請在 Colab Secrets 中設定您的 Gemini API 金鑰。")
-        logger.critical("GEMINI_API_KEY 未設定。")
+    try:
+        api_key = userdata.get('GEMINI_API_KEY')
+        if not api_key:
+            print("錯誤: GEMINI_API_KEY 未設定。請在 Colab Secrets 中設定您的 Gemini API 金鑰。")
+            logger.critical("GEMINI_API_KEY 未設定。")
+            return None
+        genai.configure(api_key=api_key)
+    except Exception as e:
+        logger.error(f"配置 Gemini SDK 時出錯: {e}", exc_info=True)
         return None
 
-    headers = {'Content-Type': 'application/json'}
-    api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro-latest:generateContent?key={api_key}"
-    max_retries_gemini = 7
-    base_delay_gemini = 60
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-pro-latest",
+        generation_config={
+            "temperature": 0.2,
+            "top_p": 0.95,
+            "top_k": 64,
+            "max_output_tokens": 8192,
+            "response_mime_type": "text/plain"
+        }
+    )
 
     all_corrected_lines_from_batches = []
     total_lines = len(transcribed_text_lines)
@@ -179,6 +185,9 @@ def get_gemini_correction(logger, transcribed_text_lines, pdf_context, main_inst
     num_batches = (total_lines + GEMINI_API_BATCH_MAX_LINES - 1) // GEMINI_API_BATCH_MAX_LINES
     logger.info(f"文本總行數: {total_lines}。按每批次最多 {GEMINI_API_BATCH_MAX_LINES} 行，將分割成 {num_batches} 個批次進行 Gemini API 校對。")
 
+    max_retries_gemini = 5
+    base_delay_gemini = 60
+
     for batch_idx in range(num_batches):
         start_index = batch_idx * GEMINI_API_BATCH_MAX_LINES
         end_index = min((batch_idx + 1) * GEMINI_API_BATCH_MAX_LINES, total_lines)
@@ -188,16 +197,14 @@ def get_gemini_correction(logger, transcribed_text_lines, pdf_context, main_inst
             logger.warning(f"第 {batch_idx+1}/{num_batches} 批次為空，跳過。")
             continue
 
-        logger.info(f"正在處理第 {batch_idx+1}/{num_batches} 批次的文本 (行 {start_index+1} 到 {end_index}) 進行 Gemini API 校對...")
+        logger.info(f"正在處理第 {batch_idx+1}/{num_batches} 批次的文本 (行 {start_index+1} 到 {end_index})...")
 
         batch_transcribed_text_single_string = "\n".join(current_batch_lines)
         try:
-            # 使用新的佔位符名稱 'batch_line_count'
             batch_specific_correction_rules = correction_rules.format(batch_line_count=len(current_batch_lines))
         except KeyError as ke:
-            logger.error(f"格式化校對規則 (批次 {batch_idx+1}/{num_batches}) 時發生錯誤：佔位符 'batch_line_count' 可能不正確或缺失。規則模板: '{correction_rules}' 錯誤: {ke}", exc_info=True)
-            batch_specific_correction_rules = correction_rules
-            logger.warning("由於校對規則格式化錯誤，將嘗試使用未格式化的校對規則。")
+            logger.error(f"格式化校對規則 (批次 {batch_idx+1}/{num_batches}) 時，佔位符不正確或缺失。期望的佔位符是 '{{batch_line_count}}'。規則模板: '{correction_rules}' 錯誤: {ke}", exc_info=True)
+            return None
 
         full_prompt_for_batch = (
             f"{main_instruction}\n\n"
@@ -206,88 +213,78 @@ def get_gemini_correction(logger, transcribed_text_lines, pdf_context, main_inst
             f"{batch_specific_correction_rules}"
         )
 
-        payload_for_batch = {
-            "contents": [{"role": "user", "parts": [{"text": full_prompt_for_batch}]}],
-            "generationConfig": {"temperature": 0.2, "topP": 0.95, "topK": 64, "maxOutputTokens": 8192, "responseMimeType": "text/plain"}
-        }
-
-        response_for_batch = None
-        batch_call_successful = False
+        batch_processed_successfully = False
         for attempt in range(max_retries_gemini):
             try:
                 logger.debug(f"Gemini API (批次 {batch_idx+1}/{num_batches}) - 嘗試 {attempt + 1}/{max_retries_gemini}...")
-                response_for_batch = requests.post(api_url, headers=headers, data=json.dumps(payload_for_batch), timeout=300)
-                response_for_batch.raise_for_status()
-                batch_call_successful = True
-                logger.info(f"Gemini API (批次 {batch_idx+1}/{num_batches}) - 嘗試 {attempt + 1} 成功。")
-                break
-            except requests.exceptions.RequestException as e:
-                if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
-                    if attempt < max_retries_gemini - 1:
-                        delay = base_delay_gemini * (2 ** attempt)
-                        logger.warning(f"Gemini API (批次 {batch_idx+1}/{num_batches}) 速率限制 (429)。將在 {delay} 秒後重試... (嘗試 {attempt + 1}/{max_retries_gemini})")
-                        print(f"Gemini API (批次 {batch_idx+1}/{num_batches}) 速率限制 (429)。將在 {delay} 秒後重試... (嘗試 {attempt + 1}/{max_retries_gemini})")
-                        time.sleep(delay)
-                    else:
-                        detailed_error_message = (
-                            f"Gemini API (批次 {batch_idx+1}/{num_batches}) 調用因達到最大重試次數 ({max_retries_gemini} 次) 而最終失敗 (HTTP 429)。錯誤詳情: {e}\n"
-                            f"這可能表示您的 Gemini API 金鑰遇到了較嚴格的配額限制（例如每日請求總量、每分鐘請求數或特定於 'gemini-1.5-pro-latest' 模型的限制）。\n"
-                            f"**強烈建議您前往 Google Cloud Console (或您的 API 金鑰管理平台) 檢查 Gemini API 的用量和配額詳情。**"
-                        )
-                        logger.error(detailed_error_message)
-                        print(f"Gemini API (批次 {batch_idx+1}/{num_batches}) 已達最大重試次數 (429)。失敗。")
-                        return None
-                else:
-                    logger.error(f"調用 Gemini API (批次 {batch_idx+1}/{num_batches}) 時發生請求錯誤 (非429): {e}", exc_info=True)
-                    print(f"調用 Gemini API (批次 {batch_idx+1}/{num_batches}) 時發生錯誤: {e}")
-                    return None
+                response = model.generate_content(full_prompt_for_batch)
+                corrected_text_from_api_batch = response.text
+                raw_corrected_lines_for_this_batch = corrected_text_from_api_batch.strip().split('\n')
 
-        if not batch_call_successful:
-            logger.error(f"Gemini API (批次 {batch_idx+1}/{num_batches}) 調用最終失敗 (所有重試均未成功)。")
-            return None
-
-        logger.debug(f"Gemini API (批次 {batch_idx+1}/{num_batches}) 成功，等待15秒...")
-        time.sleep(15)
-
-        try:
-            result_for_batch = response_for_batch.json()
-            if (result_for_batch.get("candidates") and
-                result_for_batch["candidates"][0].get("content") and
-                result_for_batch["candidates"][0]["content"].get("parts") and
-                result_for_batch["candidates"][0]["content"]["parts"][0].get("text")):
-
-                corrected_text_from_api_batch = result_for_batch["candidates"][0]["content"]["parts"][0]["text"]
-                corrected_lines_for_this_batch = corrected_text_from_api_batch.strip().split('\n')
-
-                if len(corrected_lines_for_this_batch) == len(current_batch_lines):
-                    logger.info(f"Gemini API (批次 {batch_idx+1}/{num_batches}) 校對完成，行數與原始批次文本一致 ({len(corrected_lines_for_this_batch)} 行)。")
-                else:
-                    logger.warning(f"Gemini API (批次 {batch_idx+1}/{num_batches}) 返回的行數 ({len(corrected_lines_for_this_batch)}) 與原始批次文本行數 ({len(current_batch_lines)}) 不一致。將嘗試調整。")
-                    adjusted_batch_lines = []
+                # --- Per-Batch Line Count Adjustment ---
+                if len(raw_corrected_lines_for_this_batch) != len(current_batch_lines):
+                    logger.warning(f"Gemini API (批次 {batch_idx+1}/{num_batches}) 返回的行數 ({len(raw_corrected_lines_for_this_batch)}) 與原始批次文本行數 ({len(current_batch_lines)}) 不一致。將進行逐行校準。")
+                    adjusted_lines_for_this_batch = []
                     for k_idx in range(len(current_batch_lines)):
-                        if k_idx < len(corrected_lines_for_this_batch):
-                            adjusted_batch_lines.append(corrected_lines_for_this_batch[k_idx])
+                        if k_idx < len(raw_corrected_lines_for_this_batch):
+                            adjusted_lines_for_this_batch.append(raw_corrected_lines_for_this_batch[k_idx])
                         else:
-                            adjusted_batch_lines.append(current_batch_lines[k_idx])
-                    corrected_lines_for_this_batch = adjusted_batch_lines[:len(current_batch_lines)]
-                    logger.info(f"已嘗試調整批次 {batch_idx+1}/{num_batches} 的行數為 {len(corrected_lines_for_this_batch)} 行。")
+                            # Pad with original line if Gemini returned fewer lines for the batch
+                            adjusted_lines_for_this_batch.append(current_batch_lines[k_idx])
+                            logger.debug(f"批次 {batch_idx+1}，行 {k_idx + start_index + 1} (原始索引): 使用原始行填充，因 Gemini 在此批次返回行數不足。")
+                    corrected_lines_for_this_batch = adjusted_lines_for_this_batch
+                    logger.info(f"已對批次 {batch_idx+1}/{num_batches} 進行行數校準，確保與原始批次行數 ({len(current_batch_lines)}) 一致。")
+                else:
+                    corrected_lines_for_this_batch = raw_corrected_lines_for_this_batch
+                    logger.info(f"Gemini API (批次 {batch_idx+1}/{num_batches}) 校對完成，行數與原始批次文本一致 ({len(corrected_lines_for_this_batch)} 行)。")
 
                 all_corrected_lines_from_batches.extend(corrected_lines_for_this_batch)
-            else:
-                logger.error(f"Gemini API (批次 {batch_idx+1}/{num_batches}) 響應結構異常或內容缺失: {result_for_batch}")
-                print(f"Gemini API (批次 {batch_idx+1}/{num_batches}) 響應結構異常或內容缺失。")
-                return None
-        except json.JSONDecodeError as e:
-            logger.error(f"解析 Gemini API (批次 {batch_idx+1}/{num_batches}) 響應時發生 JSON 解碼錯誤: {e}. 響應文本: {response_for_batch.text if response_for_batch else 'N/A'}", exc_info=True)
-            print(f"解析 Gemini API (批次 {batch_idx+1}/{num_batches}) 響應時發生錯誤。")
-            return None
-        except Exception as e:
-            logger.error(f"處理 Gemini API (批次 {batch_idx+1}/{num_batches}) 響應時發生未知錯誤: {e}", exc_info=True)
-            print(f"處理 Gemini API (批次 {batch_idx+1}/{num_batches}) 響應時發生未知錯誤。")
+                # logger.info(f"批次 {batch_idx+1}/{num_batches} 處理成功。") # This message might be redundant now given the specific line count messages above
+                batch_processed_successfully = True
+                break
+            except Exception as e:
+                error_message = str(e)
+                if "429" in error_message or "ResourceExhausted" in str(type(e)) or "rate limit" in error_message.lower():
+                    if attempt < max_retries_gemini - 1:
+                        delay = base_delay_gemini * (2 ** attempt)
+                        logger.warning(f"Gemini API (批次 {batch_idx+1}) 速率限制。將在 {delay} 秒後重試... (嘗試 {attempt + 1}/{max_retries_gemini})")
+                        time.sleep(delay)
+                    else:
+                        logger.error(f"Gemini API (批次 {batch_idx+1}) 已達最大重試次數。失敗。錯誤: {e}", exc_info=True)
+                        return None
+                else:
+                    logger.error(f"調用 Gemini API (批次 {batch_idx+1}) 時發生嚴重錯誤: {e}", exc_info=True)
+                    return None
+
+        if not batch_processed_successfully:
+            logger.error(f"Gemini API (批次 {batch_idx+1}) 調用最終失敗 (所有重試均未成功)。")
             return None
 
-    logger.info("所有批次的 Gemini API 校對請求均已成功完成。")
-    return "\n".join(all_corrected_lines_from_batches)
+        if batch_idx < num_batches - 1:
+            logger.info(f"批次 {batch_idx+1}/{num_batches} 處理完成，等待 15 秒...")
+            time.sleep(15)
+
+    logger.info("所有批次的 Gemini API 校對請求均已處理完成。")
+    final_corrected_text_str = "\n".join(all_corrected_lines_from_batches)
+    final_corrected_lines_list = final_corrected_text_str.split('\n')
+
+    if len(final_corrected_lines_list) != total_lines:
+        logger.warning(f"最終校對文本總行數 ({len(final_corrected_lines_list)}) 與原始總行數 ({total_lines}) 不符。")
+        logger.info("將按原始總行數進行最終截斷或填充。")
+
+        if len(final_corrected_lines_list) > total_lines:
+            final_output_lines = final_corrected_lines_list[:total_lines]
+            logger.info(f"最終輸出已截斷至 {total_lines} 行。")
+        else:
+            final_output_lines = final_corrected_lines_list
+            missing_lines_count = total_lines - len(final_corrected_lines_list)
+            placeholder_line = "[校對後行數不足，此行為填充]"
+            for _ in range(missing_lines_count):
+                final_output_lines.append(placeholder_line)
+            logger.info(f"最終輸出已用占位符填充至 {total_lines} 行。")
+        return "\n".join(final_output_lines)
+
+    return final_corrected_text_str
 
 gc = None
 pdf_context_text = ""
@@ -398,7 +395,7 @@ def initial_setup(logger_instance):
         logger_instance.error(f"使用 `google.colab.files.upload()` 進行 PDF 上傳時發生錯誤: {e_colab_files}", exc_info=True)
 
     logger_instance.info(f"正在從 '{pdf_handout_dir}' 提取 PDF 講義內容...")
-    pdf_context_text_local = extract_text_from_pdf_dir(pdf_handout_dir)
+    pdf_context_text_local = extract_text_from_pdf_dir(logger_instance, pdf_handout_dir) # Pass logger
     if pdf_context_text_local is None or not pdf_context_text_local.strip():
         logger_instance.warning(f"未能從資料夾 '{pdf_handout_dir}' 提取到有效文本，或資料夾不存在/為空。Gemini 校對將不使用講義參考。")
         pdf_context_text = ""
@@ -415,7 +412,7 @@ def process_transcriptions_and_apply_gemini(logger, current_main_instruction_par
         logger.error("gspread client (gc) 未初始化。身份驗證可能失敗。")
         return
 
-    gemini_processed_items = load_gemini_processed_state(GEMINI_STATE_FILE_PATH)
+    gemini_processed_items = load_gemini_processed_state(logger, GEMINI_STATE_FILE_PATH) # Pass logger
     logger.info(f"已載入 {len(gemini_processed_items)} 個已完成 Gemini 校對的項目記錄。")
 
     logger.info(f"開始掃描輸入目錄: {TRANSCRIPTIONS_ROOT_INPUT_DIR}")
@@ -536,7 +533,7 @@ def process_transcriptions_and_apply_gemini(logger, current_main_instruction_par
                             logger.info(f"Gemini API 校對完成 ({len(gemini_lines)} 行)。已成功上傳 Gemini 校對結果至 B欄 ({base_name})。")
 
                             gemini_processed_items.add(base_name)
-                            save_gemini_processed_state(GEMINI_STATE_FILE_PATH, gemini_processed_items)
+                            save_gemini_processed_state(logger, GEMINI_STATE_FILE_PATH, gemini_processed_items) # Pass logger
                             logger.info(f"已將 '{base_name}' 標記為 Gemini 校對完成並更新狀態檔案。")
                         except Exception as e_update:
                             logger.error(f"更新 B欄 Gemini 校對結果時發生錯誤 ({base_name}): {e_update}", exc_info=True)
