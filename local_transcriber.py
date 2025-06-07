@@ -3,6 +3,7 @@ import datetime
 from faster_whisper import WhisperModel # 已修正導入
 import logging
 import json
+import time # Added time import
 # google.colab.drive 將在主函數中有條件地導入，用於掛載
 
 # --- 配置變數 ---
@@ -92,8 +93,24 @@ def main():
     logger.info("嘗試掛載 Google Drive...")
     try:
         from google.colab import drive
+
+        try:
+            logger.info("嘗試刷新並卸載 Google Drive (如果已掛載，最多等待20秒)...")
+            drive.flush_and_unmount(timeout_ms=20000)
+            logger.info("Google Drive 刷新並卸載操作完成。")
+        except Exception as e_unmount:
+            logger.warning(f"嘗試刷新並卸載 Drive 時發生錯誤（可能是因為 Drive 未曾掛載或卸載超時）: {e_unmount}")
+
+        logger.info("在嘗試掛載前，等待 5 秒...")
+        time.sleep(5)
+
         drive.mount('/content/drive', force_remount=True)
         logger.info("Google Drive 掛載成功。")
+
+        logger.info("等待 10 秒以確保 Google Drive 文件系統同步...")
+        time.sleep(10)
+        logger.info("Drive 同步等待完成。")
+
     except ImportError:
         logger.warning("跳過 Drive 掛載，因為不在 Colab 環境或 google.colab 不可用。")
         # 取決於 Drive 是否絕對必要，您可能需要在此處退出

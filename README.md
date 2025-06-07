@@ -20,6 +20,7 @@
         1.  純文本文件 (`[文件名]_normal.txt`)：包含完整的、經過初步清理的轉錄文字。
         2.  SRT 字幕文件 (`[文件名].srt`)：包含帶有時間碼的字幕片段。
     *   支持狀態持久化：能夠記錄已成功處理的音頻文件，在中斷後重新運行時會自動跳過這些文件。
+    *   增強的 Drive 掛載穩定性：內部已包含針對 Google Colab 環境下 Google Drive 掛載交互的優化措施（如嘗試預先卸載和操作後延遲），以提高穩定性。
     *   包含中文日誌記錄。
 *   **輸入：**
     *   運行時用戶輸入的初始提示詞。
@@ -43,6 +44,7 @@
     *   Gemini API 提示詞自定義：腳本運行初期會提示用戶輸入用於指導 Gemini API 的“主要指令”和“校對規則”，並提供可編輯的默認值。這允許用戶根據不同任務需求靈活調整對 Gemini 的指令。
     *   Gemini API 交互優化：調用 Gemini API 的部分已更新為使用官方 `google-generativeai` Python SDK，並默認使用 `gemini-1.5-pro-latest` 模型。同時，內部增強了對長文本的分批處理及每批次返回行數的校驗與自動調整機制，以確保輸出文本結構的完整性。
     *   支持 Gemini 校對的狀態持久化：記錄已成功完成 Gemini 校對的電子表格，在中斷後重新運行時會跳過這些電子表格的 Gemini API 調用步驟。
+    *   增強的 Drive 掛載穩定性：與 `local_transcriber.py` 類似，此腳本的 `initial_setup` 函數也包含了優化 Drive 掛載穩定性的步驟。
     *   包含中文日誌記錄。
 *   **輸入：**
     *   `local_transcriber.py` 腳本的輸出文件夾和文件。
@@ -160,6 +162,13 @@ print("\n--- 所有依賴包安裝指令已執行 ---")
 修改回類似：
 `corrected_text_str = get_gemini_correction(logger, whisper_lines_for_gemini, pdf_context_text, current_main_instruction_param, current_correction_rules_param)`
 (請注意，`pdf_context_text` 變量需要在該作用域內可用，它通常是從 `initial_setup` 函數獲取的全局變量或被傳遞的參數。)
+
+### 3.9. Google Drive 相關問題排查 (`sheets_gemini_processor.py`)
+如果在運行 `sheets_gemini_processor.py` 的初始階段遇到 Google Drive 掛載錯誤（例如 `ValueError: Mountpoint must not already contain files`）或提示其輸入目錄（默認為 `/content/drive/MyDrive/output_transcriptions`）未找到（即使您確認該目錄實際存在），這通常與 Colab 和 Google Drive 之間的文件系統同步延遲或狀態不一致有關。您可以嘗試以下步驟解決：
+1.  **手動卸載 Drive**：在 Google Colab 左側的文件瀏覽器標籤頁中，找到已掛載的 Drive，點擊其旁邊的卸載圖標。
+2.  **重新運行初始設定**：重新執行包含 `drive.mount()` 命令的那個 Colab 儲存格（通常是筆記本最頂部的依賴安裝和設定儲存格，或者 `sheets_gemini_processor.py` 腳本自身邏輯開始前的認證和掛載部分 -- 腳本中的 `initial_setup()` 函數包含了掛載邏輯，所以重新運行包含此腳本的儲存格即可）。
+3.  **再次運行腳本**：完成上述步驟後，再次嘗試運行 `sheets_gemini_processor.py` 的主要處理邏輯。
+腳本中的 `initial_setup()` 函數已包含嘗試刷新和卸載 Drive 的邏輯，以及操作前後的延遲等待，旨在減少此類問題的發生。
 
 ## 4. 執行順序
 
