@@ -23,7 +23,7 @@ TRANSCRIPTIONS_ROOT_INPUT_DIR = "/content/drive/MyDrive/output_transcriptions" #
 pdf_handout_dir = "/content/drive/MyDrive/lecture_handouts" # 保留，用於 Gemini 上下文
 GEMINI_STATE_FILE_PATH = os.path.join(TRANSCRIPTIONS_ROOT_INPUT_DIR, ".gemini_processed_state.json") # Gemini 處理狀態檔案路徑
 INTER_SPREADSHEET_DELAY_SECONDS = 15 # 秒，處理不同表格間的延遲
-GEMINI_API_BATCH_MAX_LINES = 100  # 每批次發送給 Gemini API 的最大行數
+GEMINI_API_BATCH_MAX_LINES = 50  # 每批次發送給 Gemini API 的最大行數 (測試用小批量)
 
 # --- 默認 Gemini API 提示詞常量 ---
 DEFAULT_GEMINI_MAIN_INSTRUCTION = (
@@ -73,7 +73,7 @@ def execute_gspread_write(logger, gspread_operation_func, *args, max_retries=5, 
 
 
 # --- 輔助函式：從 PDF 資料夾提取所有文本 ---
-def extract_text_from_pdf_dir(logger, pdf_dir): # Added logger parameter
+def extract_text_from_pdf_dir(logger, pdf_dir):
     full_text = []
     if not os.path.exists(pdf_dir):
         logger.error(f"PDF 講義資料夾 '{pdf_dir}' 不存在。")
@@ -104,7 +104,7 @@ def extract_text_from_pdf_dir(logger, pdf_dir): # Added logger parameter
     return combined_text
 
 # --- Gemini 處理狀態持久化函數 ---
-def load_gemini_processed_state(logger, state_file_path): # Added logger parameter
+def load_gemini_processed_state(logger, state_file_path):
     try:
         if os.path.exists(state_file_path):
             with open(state_file_path, 'r', encoding='utf-8') as f:
@@ -117,7 +117,7 @@ def load_gemini_processed_state(logger, state_file_path): # Added logger paramet
         logger.error(f"載入 Gemini 狀態檔案 '{state_file_path}' 時發生錯誤: {e}。將重新處理所有項目。", exc_info=True)
     return set()
 
-def save_gemini_processed_state(logger, state_file_path, processed_items_set): # Added logger parameter
+def save_gemini_processed_state(logger, state_file_path, processed_items_set):
     temp_state_file_path = state_file_path + ".tmp"
     try:
         os.makedirs(os.path.dirname(state_file_path), exist_ok=True)
@@ -164,12 +164,11 @@ def get_gemini_correction(logger, transcribed_text_lines, pdf_context, main_inst
         logger.error(f"配置 Gemini SDK 時出錯: {e}", exc_info=True)
         return None
 
-    # Define model name variable for clarity and logging
-    actual_model_name = "gemini-1.5-flash-latest"
+    actual_model_name = "gemini-1.5-flash-latest" # 使用 Flash 模型
     logger.info(f"Gemini API 將使用模型: {actual_model_name}")
 
     model = genai.GenerativeModel(
-        model_name=actual_model_name, # Use variable
+        model_name=actual_model_name,
         generation_config={
             "temperature": 0.2,
             "top_p": 0.95,
@@ -225,7 +224,6 @@ def get_gemini_correction(logger, transcribed_text_lines, pdf_context, main_inst
                 corrected_text_from_api_batch = response.text
                 raw_corrected_lines_for_this_batch = corrected_text_from_api_batch.strip().split('\n')
 
-                # --- Per-Batch Line Count Adjustment ---
                 if len(raw_corrected_lines_for_this_batch) != len(current_batch_lines):
                     logger.warning(f"Gemini API (批次 {batch_idx+1}/{num_batches}) 返回的行數 ({len(raw_corrected_lines_for_this_batch)}) 與原始批次文本行數 ({len(current_batch_lines)}) 不一致。將進行逐行校準。")
                     adjusted_lines_for_this_batch = []
@@ -233,7 +231,6 @@ def get_gemini_correction(logger, transcribed_text_lines, pdf_context, main_inst
                         if k_idx < len(raw_corrected_lines_for_this_batch):
                             adjusted_lines_for_this_batch.append(raw_corrected_lines_for_this_batch[k_idx])
                         else:
-                            # Pad with original line if Gemini returned fewer lines for the batch
                             adjusted_lines_for_this_batch.append(current_batch_lines[k_idx])
                             logger.debug(f"批次 {batch_idx+1}，行 {k_idx + start_index + 1} (原始索引): 使用原始行填充，因 Gemini 在此批次返回行數不足。")
                     corrected_lines_for_this_batch = adjusted_lines_for_this_batch
@@ -243,7 +240,6 @@ def get_gemini_correction(logger, transcribed_text_lines, pdf_context, main_inst
                     logger.info(f"Gemini API (批次 {batch_idx+1}/{num_batches}) 校對完成，行數與原始批次文本一致 ({len(corrected_lines_for_this_batch)} 行)。")
 
                 all_corrected_lines_from_batches.extend(corrected_lines_for_this_batch)
-                # logger.info(f"批次 {batch_idx+1}/{num_batches} 處理成功。") # This message might be redundant now given the specific line count messages above
                 batch_processed_successfully = True
                 break
             except Exception as e:
@@ -265,8 +261,8 @@ def get_gemini_correction(logger, transcribed_text_lines, pdf_context, main_inst
             return None
 
         if batch_idx < num_batches - 1:
-            logger.info(f"批次 {batch_idx+1}/{num_batches} 處理完成，等待 15 秒...")
-            time.sleep(15)
+            logger.info(f"批次 {batch_idx+1}/{num_batches} 處理完成，等待 5 秒...") # Updated delay
+            time.sleep(5) # Updated delay
 
     logger.info("所有批次的 Gemini API 校對請求均已處理完成。")
     final_corrected_text_str = "\n".join(all_corrected_lines_from_batches)
@@ -518,13 +514,14 @@ def process_transcriptions_and_apply_gemini(logger, current_main_instruction_par
                     logger.info(f"準備對 '{base_name}' 的文本進行 Gemini API 校對...")
                     whisper_lines_for_gemini = normal_text_content.splitlines()
 
-                    if not pdf_context_text:
-                        logger.info("注意: PDF 講義內容為空，Gemini 校對將不使用講義參考。")
+                    # Test: Pass empty string for pdf_context
+                    test_pdf_context = ""
+                    logger.info("注意：本次運行將忽略 PDF 講義上下文，僅使用轉錄文本進行 Gemini 校對測試。")
 
                     corrected_text_str = get_gemini_correction(
                         logger,
                         whisper_lines_for_gemini,
-                        pdf_context_text if pdf_context_text else "",
+                        test_pdf_context, # Pass empty string for PDF context
                         current_main_instruction_param,
                         current_correction_rules_param
                     )
@@ -565,12 +562,16 @@ def process_transcriptions_and_apply_gemini(logger, current_main_instruction_par
 if __name__ == '__main__':
     logger = logging.getLogger('SheetsGeminiProcessorLogger')
     logger.setLevel(logging.INFO)
-    if not logger.handlers:
-        ch = logging.StreamHandler()
-        ch.setLevel(logging.INFO)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        ch.setFormatter(formatter)
-        logger.addHandler(ch)
+    logger.handlers.clear()  # 清除已存在的 handlers
+
+    # 創建並配置新的 StreamHandler
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+
+    logger.addHandler(ch)  # 添加新的 handler
+    logger.propagate = False # 阻止日誌傳播到 root logger
 
     logger.info("sheets_gemini_processor.py 腳本已啟動。")
 
@@ -583,3 +584,5 @@ if __name__ == '__main__':
         process_transcriptions_and_apply_gemini(logger, main_instr, correct_rules)
 
     logger.info("sheets_gemini_processor.py 腳本已完成。")
+
+[end of sheets_gemini_processor.py]
