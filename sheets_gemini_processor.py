@@ -35,8 +35,8 @@ GEMINI_API_BATCH_MAX_LINES = 100      # 每批次發送給 Gemini API 的最大�
 
 # --- Gemini API 模型與延遲 ---
 # 注意: gemini-1.5-pro 免費額度為 2 RPM (每分鐘請求數)，因此批次間延遲需 > 30秒
-GEMINI_MODEL_NAME = "gemini-1.5-pro-latest"
-GEMINI_PRO_SAFE_DELAY_SECONDS = 35 # 為 2 RPM (30秒/次) 限制增加安全邊際
+GEMINI_MODEL_NAME = "models/gemini-2.5-pro-experimental-0325-latest"
+GEMINI_PRO_SAFE_DELAY_SECONDS = 15 # 為 2 RPM (30秒/次) 限制增加安全邊際
 
 # ==============================================================================
 # 默認 Gemini API 提示詞常量 (Default Prompts)
