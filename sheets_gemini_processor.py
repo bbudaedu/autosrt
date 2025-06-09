@@ -164,7 +164,7 @@ def get_gemini_correction(logger, transcribed_text_lines, pdf_context, main_inst
         logger.error(f"配置 Gemini SDK 時出錯: {e}", exc_info=True)
         return None
 
-    actual_model_name = "gemini-1.5-pro-latest" # Reverted to Pro model
+    actual_model_name = "Gemini 2.5 Pro Experimental 03-25" # Reverted to Pro model
     logger.info(f"Gemini API 將使用模型: {actual_model_name} (根據用戶最新指示配置)")
 
     model = genai.GenerativeModel(
