@@ -1,12 +1,12 @@
 import os
 import gspread
 from google.auth import default
-from google.colab import auth, drive
 import datetime
 import math # For math.ceil
 
 # --- Configuration ---
-OUTPUT_ROOT_DIR = "/content/drive/MyDrive/output_transcriptions"
+# OUTPUT_ROOT_DIR: Root directory where segmented text files will be saved
+OUTPUT_ROOT_DIR = "./output_transcriptions"
 SPREADSHEET_NAME = "T095P002" # Placeholder for user input, as per plan
 # MAX_CHARS_PER_FILE and MAX_LINES_PER_FILE are no longer needed for time-based segmentation
 
@@ -38,17 +38,15 @@ def seconds_to_srt_time(total_seconds):
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
 
 def authenticate():
-    """Handles Google Colab authentication for Drive and Sheets."""
-    print("Authenticating for Google Drive and Sheets...")
+    """Handles Google Sheets authentication using Application Default Credentials."""
+    print("Authenticating for Google Sheets...")
     try:
-        auth.authenticate_user()
         creds, _ = default()
         gc = gspread.authorize(creds)
-        drive.mount('/content/drive', force_remount=True)
-        print("Authentication successful and Google Drive mounted.")
+        print("Authentication successful.")
         return gc
     except Exception as e:
-        print(f"Error during authentication or mounting Google Drive: {e}")
+        print(f"Error during authentication: {e}")
         return None
 
 # create_output_subdir is no longer needed as the directory structure is simpler.

@@ -8,7 +8,7 @@
 3.  利用 Gemini API 對轉錄文本進行自動校對。
 4.  （可選）將校對後的文本按固定時長（如30分鐘）切分成多個文本文件，以便進一步的人工審閱。
 
-項目主要由兩個核心 Python 腳本 (`local_transcriber.py` 和 `sheets_gemini_processor.py`) 以及一個輔助腳本 (`text_segmenter_colab.py`) 組成，設計在 Google Colab 環境中運行。
+項目主要由兩個核心 Python 腳本 (`local_transcriber.py` 和 `sheets_gemini_processor.py`) 以及一個輔助腳本 (`text_segmenter_colab.py`) 組成，設計在本地 Python 環境中運行，並可選擇利用 Google Sheets 和 Gemini API 進行雲端處理。
 
 ## 2. 腳本功能詳解
 
@@ -72,60 +72,48 @@
 ## 3. 環境設置與安裝
 
 ### 3.1. 運行環境
-*   本项目設計在 **Google Colab** 環境中運行。
+本項目設計在本地 Python 環境 (建議 Python 3.8 或更高版本) 中運行。部分功能依賴 NVIDIA GPU 及相關庫。
 
 ### 3.2. 依賴安裝
-*   在運行任何 Python 腳本之前，請務必在 Colab 筆記本的**最頂部創建一個代碼儲存格**，並執行以下完整的依賴安裝命令。
-*   這些命令會設置運行 `faster-whisper` (GPU版) 以及與 Google API 交互所需的環境。
+1.  **創建並激活虛擬環境 (推薦):**
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # Linux/macOS
+    # venv\Scripts\activate    # Windows
+    ```
 
-```sh
-# Colab 安裝設定儲存格
+2.  **安裝 Python 依賴包:**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-# 0. 清除 pip 緩存 (可選，但建議保留)
-print("INFO: 清除 pip 緩存...")
-!pip cache purge
+3.  **系統級別 GPU 庫 (針對 `faster-whisper` GPU 版本):**
+    若要使用 GPU 進行音頻轉錄 (推薦，通過 `onnxruntime-gpu`)，您需要安裝 NVIDIA CUDA Toolkit 和 cuDNN。
+    - 請參考 NVIDIA 官方文檔進行安裝，確保版本與 `onnxruntime-gpu` 兼容。
+    - `requirements.txt` 中指定的 `onnxruntime-gpu` 版本會對 CUDA/cuDNN 版本有特定要求。
 
-# 1. 安裝系統級別的 GPU 函式庫 (針對 faster-whisper GPU 版本)
-print("\nINFO: 更新 apt 並安裝 CUDA/cuDNN 相關函式庫...")
-!apt-get update && apt-get install -y libcublas11 libcudnn8
+### 3.3. 本地目錄結構建議
+腳本默認使用相對路徑。建議在項目根目錄下創建以下文件夾：
+*   `./input_audio/`: 存放需要轉錄的音頻文件。 (對應 `local_transcriber.py` 中的 `INPUT_AUDIO_DIR`)
+*   `./output_transcriptions/`: 作為 `local_transcriber.py` 和 `sheets_gemini_processor.py` 輸出的根目錄。腳本會在此文件夾下自動創建子文件夾。 (對應 `OUTPUT_TRANSCRIPTIONS_ROOT_DIR` 或 `TRANSCRIPTIONS_ROOT_INPUT_DIR`)
+*   `./lecture_handouts/`: 存放 PDF 講義，供 `sheets_gemini_processor.py` 中的 Gemini API 校對時參考。 (對應 `pdf_handout_dir`)
 
-# 2. 強制安裝特定版本的 NumPy (faster-whisper 及其依賴所需)
-print("\nINFO: 強制重新安裝 NumPy v1.26.4...")
-!pip install --force-reinstall numpy==1.26.4
+這些路徑可以在各腳本的開頭部分進行修改。
 
-# 3. 安裝 faster-whisper 的核心依賴 (ctranslate2 和 onnxruntime-gpu)
-print("\nINFO: 安裝 ctranslate2 v4.3.1 (無依賴)...")
-!pip install --force-reinstall --no-deps ctranslate2==4.3.1
-print("\nINFO: 安裝 onnxruntime-gpu v1.15.0 (無依賴)...")
-!pip install --force-reinstall --no-deps onnxruntime-gpu==1.15.0
+### 3.4. API 密鑰與認證設置
+**Gemini API 密鑰:**
+您需要在環境變量中設置 `GEMINI_API_KEY`。
+例如，在 Linux/macOS: `export GEMINI_API_KEY="YOUR_API_KEY"`
+在 Windows (PowerShell): `$env:GEMINI_API_KEY="YOUR_API_KEY"`
 
-# 4. 安裝 faster-whisper
-print("\nINFO: 安裝 faster-whisper...")
-!pip install faster-whisper
-
-# 5. 安裝 Google API、PDF 和 HTTP 請求相關函式庫
-print("\nINFO: 安裝 gspread, pypdf, requests, google-generativeai...")
-!pip install gspread
-!pip install pypdf
-!pip install requests
-!pip install google-generativeai # Gemini SDK
-
-print("\n--- 所有依賴包安裝指令已執行 ---")
-```
-
-### 3.3. Colab 執行階段重啟 (重要！)
-*   在**首次**執行上述安裝儲存格後，或者當 `numpy` 或 GPU 相關庫被安裝/更新後，**必須手動重新啟動 Colab 執行階段**。
-*   方法：在 Colab 菜單中選擇 **「執行階段」(Runtime) -> 「重新啟動執行階段」(Restart runtime)**。
-*   **必須在安裝儲存格執行完畢後，再執行此重新啟動操作**，然後才能繼續運行 Python 腳本。
-
-### 3.4. Google Drive 目錄結構
-請在您的 Google Drive 中 `/MyDrive/` 路徑下，確保以下文件夾結構（如果腳本中定義的路徑是默認值）：
-*   `/content/drive/MyDrive/input_audio/`：存放需要轉錄的音頻文件。 (對應 `local_transcriber.py` 的 `INPUT_AUDIO_DIR`)
-*   `/content/drive/MyDrive/output_transcriptions/`：作為 `local_transcriber.py` 和 `sheets_gemini_processor.py` 輸出的根目錄。腳本會在此文件夾下自動創建子文件夾。 (對應 `OUTPUT_TRANSCRIPTIONS_ROOT_DIR` 或 `TRANSCRIPTIONS_ROOT_INPUT_DIR`)
-*   `/content/drive/MyDrive/lecture_handouts/`：存放 PDF 講義，供 `sheets_gemini_processor.py` 中的 Gemini API 校對時參考。 (對應 `pdf_handout_dir`)
-
-### 3.5. API 密鑰設置
-*   對於 `sheets_gemini_processor.py` 中的 Gemini API 功能，您需要在 Google Colab 的 **Secrets (密鑰)** 功能中添加一個名為 `GEMINI_API_KEY` 的密鑰，其值為您的 Gemini API 金鑰。
+**Google Cloud (Sheets API) 認證:**
+腳本使用應用程序默認憑據 (Application Default Credentials, ADC) 來訪問 Google Sheets API。
+1.  創建一個 Google Cloud Platform (GCP) 項目。
+2.  在您的 GCP 項目中啟用 Google Sheets API。
+3.  創建一個服務帳戶 (Service Account) 並下載其 JSON 密鑰文件。
+4.  設置環境變量 `GOOGLE_APPLICATION_CREDENTIALS` 指向您下載的 JSON 密鑰文件的路徑。
+    例如，在 Linux/macOS: `export GOOGLE_APPLICATION_CREDENTIALS="/path/to/your/service-account-file.json"`
+    在 Windows (PowerShell): `$env:GOOGLE_APPLICATION_CREDENTIALS="C:\path\to\your\service-account-file.json"`
 
 ### 3.6. Gemini API 提示詞默認內容
 腳本為 Gemini API 校對提供了以下可自定義的默認提示詞結構：
@@ -163,34 +151,29 @@ print("\n--- 所有依賴包安裝指令已執行 ---")
 `corrected_text_str = get_gemini_correction(logger, whisper_lines_for_gemini, pdf_context_text, current_main_instruction_param, current_correction_rules_param)`
 (請注意，`pdf_context_text` 變量需要在該作用域內可用，它通常是從 `initial_setup` 函數獲取的全局變量或被傳遞的參數。)
 
-### 3.9. Google Drive 相關問題排查 (`sheets_gemini_processor.py`)
-如果在運行 `sheets_gemini_processor.py` 的初始階段遇到 Google Drive 掛載錯誤（例如 `ValueError: Mountpoint must not already contain files`）或提示其輸入目錄（默認為 `/content/drive/MyDrive/output_transcriptions`）未找到（即使您確認該目錄實際存在），這通常與 Colab 和 Google Drive 之間的文件系統同步延遲或狀態不一致有關。您可以嘗試以下步驟解決：
-1.  **手動卸載 Drive**：在 Google Colab 左側的文件瀏覽器標籤頁中，找到已掛載的 Drive，點擊其旁邊的卸載圖標。
-2.  **重新運行初始設定**：重新執行包含 `drive.mount()` 命令的那個 Colab 儲存格（通常是筆記本最頂部的依賴安裝和設定儲存格，或者 `sheets_gemini_processor.py` 腳本自身邏輯開始前的認證和掛載部分 -- 腳本中的 `initial_setup()` 函數包含了掛載邏輯，所以重新運行包含此腳本的儲存格即可）。
-3.  **再次運行腳本**：完成上述步驟後，再次嘗試運行 `sheets_gemini_processor.py` 的主要處理邏輯。
-腳本中的 `initial_setup()` 函數已包含嘗試刷新和卸載 Drive 的邏輯，以及操作前後的延遲等待，旨在減少此類問題的發生。
-
 ## 4. 執行順序
 
 推薦的執行流程如下：
 
-1.  **環境設定儲存格**：執行包含所有依賴安裝命令的 Colab 儲存格。如果提示，請重新啟動執行階段。
-2.  **運行 `local_transcriber.py`**：
+0.  **首次設置:**
+    *   確保已安裝所有依賴 (參見 `### 3.2`)。
+    *   設置必要的環境變量 (`GEMINI_API_KEY`, `GOOGLE_APPLICATION_CREDENTIALS`) (參見 `### 3.4`)。
+    *   根據需要創建本地目錄 (`./input_audio`, `./lecture_handouts`) 並放置相應文件。
+1.  **運行 `local_transcriber.py`**：
     *   腳本啟動時，系統會提示您輸入或確認用於 Whisper 轉錄的初始提示詞。
-    *   之後，腳本會處理音頻文件，生成 `_normal.txt` 和 `.srt` 文件到 `output_transcriptions/[audio_basename]/`。
-3.  **運行 `sheets_gemini_processor.py`**：
-    *   腳本啟動時，會自動清理舊的 PDF 講義文件夾 (`pdf_handout_dir`)。
-    *   之後，會提供一個文件上傳界面，讓您上傳本次任務所需的 PDF 參考資料到 `pdf_handout_dir`。
-    *   接下來，系統會提示您確認或修改用於指導 Gemini API 的“主要指令”和“校對規則”。
-    *   然後，腳本會讀取 `local_transcriber.py` 的輸出，創建/更新 Google Sheets，並調用 Gemini API 進行校對（長文本會自動分批處理）。**請注意當前的測試配置默認不使用 PDF 上下文。**
-4.  **（可選）運行 `text_segmenter_colab.py`**：如果您需要將校對後的文本按30分鐘切分，則在 `sheets_gemini_processor.py` 完成對應的電子表格處理後，運行此腳本。
+    *   之後，腳本會處理音頻文件，生成 `_normal.txt` 和 `.srt` 文件到配置的輸出目錄中 (默認 `./output_transcriptions/[audio_basename]/`)。
+2.  **運行 `sheets_gemini_processor.py`**：
+    *   確保 PDF 參考資料已放置在配置的 `pdf_handout_dir` (默認 `./lecture_handouts/`)。腳本會自動清理此目錄下舊的 PDF (如果適用，根據腳本邏輯)。
+    *   系統會提示您確認或修改用於指導 Gemini API 的“主要指令”和“校對規則”。
+    *   然後，腳本會讀取 `local_transcriber.py` 的輸出，創建/更新 Google Sheets，並調用 Gemini API 進行校對。
+3.  **（可選）運行 `text_segmenter_colab.py`**：如果您需要將校對後的文本按30分鐘切分，則在 `sheets_gemini_processor.py` 完成對應的電子表格處理後，運行此腳本。
 
 ## 5. 狀態持久化
 
-*   `local_transcriber.py`：會在 `OUTPUT_TRANSCRIPTIONS_ROOT_DIR` 文件夾下創建一個 `.processed_audio_files.json` 文件，記錄已成功轉錄的音頻文件名。重新運行時會跳過這些文件。
-*   `sheets_gemini_processor.py`：會在 `TRANSCRIPTIONS_ROOT_INPUT_DIR` 文件夾下創建一個 `.gemini_processed_state.json` 文件，記錄已成功完成 Gemini 校對的電子表格（以 `base_name` 標識）。重新運行時，對於已記錄的項目，會跳過 Gemini API 的調用和結果寫入步驟。
+*   `local_transcriber.py`：會在 `OUTPUT_TRANSCRIPTIONS_ROOT_DIR` (默認 `./output_transcriptions/`) 文件夾下創建一個 `.processed_audio_files.json` 文件，記錄已成功轉錄的音頻文件名。重新運行時會跳過這些文件。
+*   `sheets_gemini_processor.py`：會在 `TRANSCRIPTIONS_ROOT_INPUT_DIR` (默認 `./output_transcriptions/`) 文件夾下創建一個 `.gemini_processed_state.json` 文件，記錄已成功完成 Gemini 校對的電子表格（以 `base_name` 標識）。重新運行時，對於已記錄的項目，會跳過 Gemini API 的調用和結果寫入步驟。
 
 ## 6. 日誌與註釋語言
 
 *   本項目的 Python 腳本中的**日誌信息**和**代碼註釋**主要使用**中文**編寫。
-*   日誌系統：所有腳本均使用 Python 的 `logging` 模塊記錄詳細的操作日誌（中文）。日誌配置已優化，以確保在 Google Colab 環境中能清晰、無重複地輸出。
+*   日誌系統：所有腳本均使用 Python 的 `logging` 模塊記錄詳細的操作日誌（中文）。日誌配置已優化，以確保在控制台中能清晰、無重複地輸出。

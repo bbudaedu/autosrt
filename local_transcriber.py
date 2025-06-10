@@ -4,14 +4,16 @@ from faster_whisper import WhisperModel # 已修正導入
 import logging
 import json
 import time # Added time import
-# google.colab.drive 將在主函數中有條件地導入，用於掛載
 
-# --- 配置變數 ---
+# --- Configuration Variables (Edit these paths for your local setup) ---
 MODEL_SIZE = "large-v3"
 DEFAULT_INITIAL_PROMPT = "這是佛教關於密教真言宗藥師佛" # 初始提示詞的默認值
-INPUT_AUDIO_DIR = "/content/drive/MyDrive/input_audio"
-OUTPUT_TRANSCRIPTIONS_ROOT_DIR = "/content/drive/MyDrive/output_transcriptions" # 新子目錄的根目錄
-STATE_FILE_PATH = os.path.join(OUTPUT_TRANSCRIPTIONS_ROOT_DIR, ".processed_audio_files.json") # 狀態檔案路徑
+# INPUT_AUDIO_DIR: Directory containing input audio files
+INPUT_AUDIO_DIR = "./input_audio"
+# OUTPUT_TRANSCRIPTIONS_ROOT_DIR: Directory where transcriptions will be saved
+OUTPUT_TRANSCRIPTIONS_ROOT_DIR = "./output_transcriptions"
+# STATE_FILE_PATH: Path to the file tracking processed audio files
+STATE_FILE_PATH = os.path.join(OUTPUT_TRANSCRIPTIONS_ROOT_DIR, ".processed_audio_files.json")
 
 
 # --- 輔助函數 ---
@@ -88,37 +90,6 @@ def main():
     # --- 載入狀態 ---
     processed_files = load_processed_files(STATE_FILE_PATH, logger) # 傳入 logger
     logger.info(f"從狀態檔案 '{STATE_FILE_PATH}' 載入了 {len(processed_files)} 個已處理檔案的記錄。")
-
-    # --- 掛載 Google Drive ---
-    logger.info("嘗試掛載 Google Drive...")
-    try:
-        from google.colab import drive
-
-        try:
-            logger.info("嘗試刷新並卸載 Google Drive (如果已掛載，最多等待20秒)...")
-            drive.flush_and_unmount(timeout_ms=20000)
-            logger.info("Google Drive 刷新並卸載操作完成。")
-        except Exception as e_unmount:
-            logger.warning(f"嘗試刷新並卸載 Drive 時發生錯誤（可能是因為 Drive 未曾掛載或卸載超時）: {e_unmount}")
-
-        logger.info("在嘗試掛載前，等待 5 秒...")
-        time.sleep(5)
-
-        drive.mount('/content/drive', force_remount=True)
-        logger.info("Google Drive 掛載成功。")
-
-        logger.info("等待 10 秒以確保 Google Drive 文件系統同步...")
-        time.sleep(10)
-        logger.info("Drive 同步等待完成。")
-
-    except ImportError:
-        logger.warning("跳過 Drive 掛載，因為不在 Colab 環境或 google.colab 不可用。")
-        # 取決於 Drive 是否絕對必要，您可能需要在此處退出
-        # 對於沒有 Colab 的本地執行，INPUT_AUDIO_DIR 需要是本地路徑
-    except Exception as e:
-        logger.error(f"掛載 Google Drive 時發生錯誤: {e}", exc_info=True)
-        # 如果 Drive 至關重要且掛載失敗，則可能需要退出
-        return # 如果 Drive 掛載失敗且被認為是關鍵操作，則退出
 
     # --- 加載 Faster Whisper 模型 ---
     logger.info(f"正在加載 Faster Whisper 模型: {MODEL_SIZE}...")

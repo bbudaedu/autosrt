@@ -1,5 +1,4 @@
 import os
-from google.colab import drive, auth, userdata
 import google.generativeai as genai # Added for Gemini SDK
 import datetime # 保留，用於 PDF 日期邏輯 (如果有的話) 或通用工具
 import gspread
@@ -12,15 +11,17 @@ import json
 import time
 import re # 為 SRT 解析添加
 import glob # 用於 PDF 清理
-from IPython.display import HTML # <-- 修正：導入 HTML
 import warnings # 導入 warnings 模듈
 
 # 抑制 gspread 的 DeprecationWarning
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-# --- 配置區塊 ---
-TRANSCRIPTIONS_ROOT_INPUT_DIR = "/content/drive/MyDrive/output_transcriptions" # 重命名：此腳本的輸入目錄
-pdf_handout_dir = "/content/drive/MyDrive/lecture_handouts" # 保留，用於 Gemini 上下文
+# --- Configuration Variables (Edit these paths for your local setup) ---
+# TRANSCRIPTIONS_ROOT_INPUT_DIR: Directory containing outputs from local_transcriber.py
+TRANSCRIPTIONS_ROOT_INPUT_DIR = "./output_transcriptions"
+# pdf_handout_dir: Directory containing PDF lecture handouts for context
+pdf_handout_dir = "./lecture_handouts"
+# GEMINI_STATE_FILE_PATH: Path to the file tracking processed items by Gemini
 GEMINI_STATE_FILE_PATH = os.path.join(TRANSCRIPTIONS_ROOT_INPUT_DIR, ".gemini_processed_state.json") # Gemini 處理狀態檔案路徑
 INTER_SPREADSHEET_DELAY_SECONDS = 15 # 秒，處理不同表格間的延遲
 GEMINI_API_BATCH_MAX_LINES = 100  # 每批次發送給 Gemini API 的最大行數 (Pro模型無上下文測試值)
@@ -154,10 +155,9 @@ def parse_srt_content(srt_content_str):
 # --- 輔助函式：調用 Gemini API 進行校對 (使用 SDK 並含分批處理邏輯) ---
 def get_gemini_correction(logger, transcribed_text_lines, pdf_context, main_instruction, correction_rules):
     try:
-        api_key = userdata.get('GEMINI_API_KEY')
+        api_key = os.environ.get('GEMINI_API_KEY')
         if not api_key:
-            print("錯誤: GEMINI_API_KEY 未設定。請在 Colab Secrets 中設定您的 Gemini API 金鑰。")
-            logger.critical("GEMINI_API_KEY 未設定。")
+            logger.critical("GEMINI_API_KEY environment variable not set. Please set it to your Gemini API key.")
             return None
         genai.configure(api_key=api_key)
     except Exception as e:
@@ -294,23 +294,14 @@ current_correction_rules = DEFAULT_GEMINI_CORRECTION_RULES
 def initial_setup(logger_instance):
     global gc, pdf_context_text, current_main_instruction, current_correction_rules
 
-    logger_instance.info("正在進行 Google Drive 和 Sheets 身份驗證...")
+    logger_instance.info("Attempting Google Sheets authentication using Application Default Credentials (ensure GOOGLE_APPLICATION_CREDENTIALS environment variable is set).")
     try:
-        auth.authenticate_user()
         creds, _ = default()
         gc = gspread.authorize(creds)
-        logger_instance.info("Google Drive 和 Sheets 身份驗證成功。")
+        logger_instance.info("Google Sheets authentication successful.")
     except Exception as e:
-        logger_instance.error(f"Google Drive 或 Sheets 身份驗證失敗: {e}", exc_info=True)
+        logger_instance.error(f"Google Sheets authentication failed: {e}", exc_info=True)
         gc = None
-
-    if gc:
-        logger_instance.info("正在掛載 Google Drive...")
-        try:
-            drive.mount('/content/drive', force_remount=True)
-            logger_instance.info("Google Drive 掛載成功。")
-        except Exception as e:
-            logger_instance.error(f"Google Drive 掛載失敗: {e}", exc_info=True)
 
     logger_instance.info("\n--- Gemini API 提示詞設定 ---")
     logger_instance.info("當前默認的主要指令 (main instruction):")
@@ -365,34 +356,9 @@ def initial_setup(logger_instance):
     else:
         logger_instance.warning(f"PDF 講義文件夾 '{pdf_handout_dir}' 不存在，跳過清理步驟。")
 
-    logger_instance.info(f"準備 PDF 上傳界面，目標文件夾: '{pdf_handout_dir}'")
-    try:
-        from google.colab import files
-        if not os.path.exists(pdf_handout_dir):
-            logger_instance.info(f"PDF 講義文件夾 '{pdf_handout_dir}' 不存在，正在創建...")
-            os.makedirs(pdf_handout_dir, exist_ok=True)
-            logger_instance.info(f"PDF 講義文件夾 '{pdf_handout_dir}' 創建成功。")
-
-        print(f"請選擇要上傳到 '{pdf_handout_dir}' 的 PDF 講義文件：")
-        uploaded_files = files.upload()
-
-        if not uploaded_files:
-            logger_instance.info("沒有選擇任何 PDF 文件進行上傳。")
-        else:
-            for file_name, file_content in uploaded_files.items():
-                destination_path = os.path.join(pdf_handout_dir, file_name)
-                try:
-                    with open(destination_path, 'wb') as f:
-                        f.write(file_content)
-                    logger_instance.info(f"文件 '{file_name}' 已成功上傳至 '{destination_path}'。")
-                except Exception as e_upload:
-                    logger_instance.error(f"儲存上傳的 PDF 文件 '{file_name}' 至 '{destination_path}' 時發生錯誤: {e_upload}", exc_info=True)
-            logger_instance.info(f"共 {len(uploaded_files)} 個 PDF 文件上傳操作完成。")
-
-    except ImportError:
-        logger_instance.warning("`google.colab.files` 模塊無法導入。PDF 上傳功能僅在 Google Colab 環境中可用。")
-    except Exception as e_colab_files:
-        logger_instance.error(f"使用 `google.colab.files.upload()` 進行 PDF 上傳時發生錯誤: {e_colab_files}", exc_info=True)
+    logger_instance.info(f"Attempting to read PDF files from '{pdf_handout_dir}'. Please ensure your PDF handout files are placed in this directory before running the script.")
+    # The script will now expect users to place PDFs in pdf_handout_dir manually.
+    # The existing extract_text_from_pdf_dir will then read from there.
 
     logger_instance.info(f"正在從 '{pdf_handout_dir}' 提取 PDF 講義內容...")
     pdf_context_text_local = extract_text_from_pdf_dir(logger_instance, pdf_handout_dir)
@@ -541,8 +507,7 @@ def process_transcriptions_and_apply_gemini(logger, current_main_instruction_par
                         logger.warning(f"Gemini API 校對失敗或無返回內容 ({base_name})，B欄將保持空白。將不會標記為 Gemini 校對完成。")
 
                 processed_item_count += 1
-                logger.info(f"項目 {base_name} 的表格處理完成。試算表連結: {spreadsheet.url}")
-                display(HTML(f"<p>項目 {base_name} 處理完成。試算表連結: <a href='{spreadsheet.url}' target='_blank'>{spreadsheet.url}</a></p>"))
+                logger.info(f"項目 {base_name} 處理完成。試算表連結: {spreadsheet.url}")
 
                 logger.info(f"已完成對 '{base_name}' 的所有處理。等待 {INTER_SPREADSHEET_DELAY_SECONDS} 秒後處理下一個項目...")
                 time.sleep(INTER_SPREADSHEET_DELAY_SECONDS)
